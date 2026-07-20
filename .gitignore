@@ -3,8 +3,10 @@ client_secret.json
 client_secrets.json
 token.json
 
-# Per-user upload history (which TikToks already went to YouTube)
+# Per-user state (history, preferences, run log)
 uploaded.json
+settings.json
+daily_log.txt
 
 # Downloaded videos
 downloads/

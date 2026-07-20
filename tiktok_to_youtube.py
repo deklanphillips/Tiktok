@@ -35,6 +35,34 @@ DOWNLOAD_DIR = "downloads"
 # Remembers which TikToks have already been uploaded, so re-runs skip them.
 UPLOADED_FILE = "uploaded.json"
 
+# Your preferences (profile, hashtags, schedule...), managed by the app.
+SETTINGS_FILE = "settings.json"
+DEFAULT_SETTINGS = {
+    "profile": "",
+    "hashtags": "",
+    "privacy": "private",
+    "daily_count": 6,
+    "as_short": True,
+    "cookies_browser": "",
+    "schedule_time": "09:00",
+}
+
+
+# --- Settings ---------------------------------------------------------------
+def load_settings() -> dict:
+    data = dict(DEFAULT_SETTINGS)
+    try:
+        with open(SETTINGS_FILE) as f:
+            data.update(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return data
+
+
+def save_settings(settings: dict) -> None:
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
 
 # --- Upload history (duplicate prevention) ----------------------------------
 def load_uploaded() -> dict:
@@ -357,8 +385,39 @@ def run_job(
     print("\nDone.")
 
 
+def run_daily():
+    """Unattended run used by the scheduled task. Reads settings.json, uploads
+    the configured daily count, and appends output to daily_log.txt."""
+    import datetime
+    from contextlib import redirect_stderr, redirect_stdout
+
+    os.environ["TIKTOK_NONINTERACTIVE"] = "1"
+    s = load_settings()
+    profile = (s.get("profile") or "").strip()
+
+    with open("daily_log.txt", "a", encoding="utf-8") as log:
+        with redirect_stdout(log), redirect_stderr(log):
+            print(f"\n==== Run started {datetime.datetime.now():%Y-%m-%d %H:%M} ====")
+            if not profile:
+                print("No profile saved yet — open the app and set one.")
+            else:
+                run_job(
+                    [profile],
+                    privacy=s.get("privacy", "private"),
+                    as_short=s.get("as_short", True),
+                    cookies_browser=s.get("cookies_browser") or None,
+                    hashtags=(s.get("hashtags") or "").strip() or None,
+                    limit=int(s.get("daily_count", 6)) or None,
+                )
+            print("==== Run finished ====")
+
+
 # --- CLI --------------------------------------------------------------------
 def main():
+    if "--daily" in sys.argv:
+        run_daily()
+        return
+
     parser = argparse.ArgumentParser(
         description="Download your TikToks and upload them to YouTube as Shorts."
     )

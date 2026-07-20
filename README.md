@@ -49,19 +49,26 @@ again.
 > `client_secret.json` and `token.json` are secrets — they're already in
 > `.gitignore` and must never be committed.
 
-## 3. Run it — the easy way (desktop app)
+## 3. Run it — the app (recommended)
 
-Prefer a window with buttons instead of typing commands? Just **double-click
-`Start.bat`** (or run `python gui.py`).
+Just **double-click `Start.bat`** (or run `python gui.py`). Everything is in one
+window with three tabs — no editing `.bat` or `.txt` files:
 
-You get a small app where you paste your TikTok profile URL, your hashtags are
-pre-filled, and you pick privacy / how many to do — then hit **Start** and
-watch the progress. It uses the same engine as the command line below.
+- **Settings** — your profile URL, hashtags, privacy, and how many per day.
+  Saved automatically; used by both manual and automatic runs.
+- **Upload** — hit **Start** to run a batch right now and watch the progress.
+- **Automation** — one button to turn the **daily auto-upload** on/off, pick the
+  time, run a batch now, and read the daily log.
 
-> Editing the pre-filled hashtags: open `gui.py` and change the
-> `DEFAULT_HASHTAGS` line near the top.
+**First-time order:** open **Settings**, fill in your profile + hashtags, click
+**Save settings**. Then use **Upload** or **Automation**.
 
-## 3b. Run it — the command line
+The daily automation is free and within YouTube's rules — it's just your PC
+running the official uploader on a schedule (your PC must be on and awake at the
+chosen time). See **"Keeping the daily job logged in"** below so it doesn't stop
+after a week.
+
+## 3b. Run it — the command line (optional)
 
 ### Pull your whole profile at once
 
@@ -140,22 +147,15 @@ individual video downloads get rejected.
 
 ## Fully automatic daily uploads (free, ToS-friendly)
 
-Let Windows run the uploader for you once a day — 6 new videos each day, using
-the official API, at no extra cost. This is just you on a schedule; it doesn't
-violate YouTube's terms.
+Open the app → **Automation** tab:
 
-**Set it up (once):**
+1. Make sure you've signed in once (run a batch from the **Upload** tab).
+2. Set the time and click **Turn ON daily upload**.
 
-1. Run the tool by hand once first (open the app or run a command) so you're
-   signed in and it works.
-2. Open `daily_upload.bat` in Notepad and check the `PROFILE` and `HASHTAGS`
-   lines near the top are right. Change the time in `setup_daily_task.bat` if
-   you don't want 9:00 AM.
-3. Double-click **`setup_daily_task.bat`**.
-
-That's it — every day at 9 AM it uploads the next 6 new videos and skips
-everything already done. Output is logged to `daily_log.txt`. To stop it, run
-**`remove_daily_task.bat`**.
+That's it — every day at that time your PC uploads the next batch of new videos
+and skips everything already done. Read results in the **Daily log** box, or
+click **Turn OFF** to stop. It's free (official API, within the daily quota) and
+ToS-friendly — just you on a schedule. Your PC must be on and awake at the time.
 
 ### Keeping the daily job logged in (important)
 
