@@ -16,6 +16,7 @@ See README.md for the one-time Google/YouTube setup.
 """
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -45,7 +46,13 @@ DEFAULT_SETTINGS = {
     "as_short": True,
     "cookies_browser": "",
     "schedule_time": "09:00",
+    # Auto-publish scheduling: spread uploads across these times each day.
+    "schedule_publish": False,
+    "schedule_slots": ["09:00", "14:00", "19:00"],
 }
+
+# Tracks the last publish slot handed out, so slots never collide across runs.
+SCHEDULE_FILE = "schedule.json"
 
 
 # --- Settings ---------------------------------------------------------------
@@ -86,6 +93,67 @@ def extract_tiktok_id(url: str):
         return m.group(1)
     m = re.search(r"(\d{6,})", url)  # fallback for other URL shapes
     return m.group(1) if m else None
+
+
+# --- Auto-publish scheduling ------------------------------------------------
+def load_schedule() -> dict:
+    try:
+        with open(SCHEDULE_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_schedule(state: dict) -> None:
+    with open(SCHEDULE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def _parse_slots(slots):
+    """['09:00','14:00'] -> sorted list of datetime.time (bad entries ignored)."""
+    times = []
+    for s in slots or []:
+        s = str(s).strip()
+        if not s:
+            continue
+        try:
+            hh, mm = s.split(":")
+            times.append(datetime.time(int(hh), int(mm)))
+        except ValueError:
+            continue
+    return sorted(set(times))
+
+
+def next_publish_time(slots, state):
+    """Return (local_datetime, iso_utc) for the next free publish slot and
+    advance `state` so the following call gets the slot after it."""
+    times = _parse_slots(slots)
+    if not times:
+        return None, None
+
+    now = datetime.datetime.now().astimezone()
+    cursor = now
+    last_iso = state.get("last")
+    if last_iso:
+        try:
+            last = datetime.datetime.fromisoformat(last_iso)
+            if last > cursor:
+                cursor = last
+        except ValueError:
+            pass
+
+    day = cursor.date()
+    for _ in range(3660):  # safety bound (~10 years)
+        for t in times:
+            cand = datetime.datetime.combine(day, t).astimezone()
+            if cand > cursor:
+                state["last"] = cand.isoformat()
+                iso_utc = cand.astimezone(datetime.timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+                return cand, iso_utc
+        day += datetime.timedelta(days=1)
+    return None, None
 
 
 # --- Downloading ------------------------------------------------------------
@@ -229,7 +297,7 @@ def _strip_hashtags(text: str) -> str:
 
 
 def build_shorts_metadata(
-    video: dict, as_short: bool, privacy: str, hashtags: str = None
+    video: dict, as_short: bool, privacy: str, hashtags: str = None, publish_at: str = None
 ) -> dict:
     """Turn TikTok metadata into a YouTube upload body."""
     title = video["title"]
@@ -253,26 +321,37 @@ def build_shorts_metadata(
     # YouTube titles cap at 100 chars.
     title = title[:100]
 
+    status = {"selfDeclaredMadeForKids": False}
+    if publish_at:
+        # Scheduled publish requires privacy=private; YouTube flips it public
+        # automatically at publish_at.
+        status["privacyStatus"] = "private"
+        status["publishAt"] = publish_at
+    else:
+        status["privacyStatus"] = privacy
+
     return {
         "snippet": {
             "title": title or "Short",
             "description": description,
             "categoryId": "22",  # People & Blogs
         },
-        "status": {
-            "privacyStatus": privacy,
-            "selfDeclaredMadeForKids": False,
-        },
+        "status": status,
     }
 
 
 def upload_to_youtube(
-    youtube, video: dict, as_short: bool, privacy: str, hashtags: str = None
+    youtube,
+    video: dict,
+    as_short: bool,
+    privacy: str,
+    hashtags: str = None,
+    publish_at: str = None,
 ) -> str:
     """Upload a downloaded video. Returns the new YouTube video ID."""
     from googleapiclient.http import MediaFileUpload
 
-    body = build_shorts_metadata(video, as_short, privacy, hashtags)
+    body = build_shorts_metadata(video, as_short, privacy, hashtags, publish_at)
     media = MediaFileUpload(video["filepath"], chunksize=-1, resumable=True)
 
     request = youtube.videos().insert(
@@ -324,14 +403,16 @@ def run_job(
     limit=None,
     skip=0,
     force=False,
+    schedule_slots=None,
     should_stop=None,
 ):
     """Download and upload a batch of TikToks. Prints progress via print().
 
     Videos already recorded in uploaded.json are skipped automatically (unless
-    `force` is True), so re-runs never create duplicates. `should_stop` is an
-    optional callable returning True to abort early (used by the GUI's Stop
-    button).
+    `force` is True), so re-runs never create duplicates. If `schedule_slots`
+    (a list like ["09:00","14:00","19:00"]) is given, each upload is set to
+    auto-publish at the next free slot instead of staying private. `should_stop`
+    is an optional callable returning True to abort early (GUI Stop button).
     """
     urls = expand_urls(raw_urls, cookies_browser)
 
@@ -355,6 +436,7 @@ def run_job(
 
     print(f"\nProcessing {len(urls)} video(s).")
     youtube = None if download_only else get_youtube_service()
+    schedule_state = load_schedule() if schedule_slots else None
 
     for i, url in enumerate(urls, 1):
         if should_stop and should_stop():
@@ -369,10 +451,26 @@ def run_job(
             if download_only:
                 continue
 
+            publish_at = None
+            if schedule_slots:
+                local_dt, publish_at = next_publish_time(schedule_slots, schedule_state)
+                save_schedule(schedule_state)  # persist the cursor immediately
+
             video_id = upload_to_youtube(
-                youtube, video, as_short=as_short, privacy=privacy, hashtags=hashtags
+                youtube,
+                video,
+                as_short=as_short,
+                privacy=privacy,
+                hashtags=hashtags,
+                publish_at=publish_at,
             )
-            print(f"    uploaded: https://youtube.com/watch?v={video_id} ({privacy})")
+            if publish_at:
+                print(
+                    f"    uploaded: https://youtube.com/watch?v={video_id} — "
+                    f"goes live {local_dt:%a %b %d %I:%M %p}"
+                )
+            else:
+                print(f"    uploaded: https://youtube.com/watch?v={video_id} ({privacy})")
 
             # Record it so future runs skip this video.
             key = video.get("id") or extract_tiktok_id(url)
@@ -388,12 +486,12 @@ def run_job(
 def run_daily():
     """Unattended run used by the scheduled task. Reads settings.json, uploads
     the configured daily count, and appends output to daily_log.txt."""
-    import datetime
     from contextlib import redirect_stderr, redirect_stdout
 
     os.environ["TIKTOK_NONINTERACTIVE"] = "1"
     s = load_settings()
     profile = (s.get("profile") or "").strip()
+    slots = s.get("schedule_slots") if s.get("schedule_publish") else None
 
     with open("daily_log.txt", "a", encoding="utf-8") as log:
         with redirect_stdout(log), redirect_stderr(log):
@@ -408,6 +506,7 @@ def run_daily():
                     cookies_browser=s.get("cookies_browser") or None,
                     hashtags=(s.get("hashtags") or "").strip() or None,
                     limit=int(s.get("daily_count", 6)) or None,
+                    schedule_slots=slots,
                 )
             print("==== Run finished ====")
 
@@ -476,6 +575,12 @@ def main():
         help="Re-upload even videos already recorded in uploaded.json "
         "(by default those are skipped to avoid duplicates)",
     )
+    parser.add_argument(
+        "--schedule",
+        metavar='"09:00,14:00,19:00"',
+        help="Auto-publish uploads at these times each day (comma-separated), "
+        "instead of leaving them private. Rolls over to the next day when full.",
+    )
     args = parser.parse_args()
 
     raw = list(args.urls)
@@ -484,6 +589,8 @@ def main():
             raw += [line.strip() for line in f if line.strip() and not line.startswith("#")]
     if not raw:
         parser.error("Give at least one TikTok URL, or use --file links.txt")
+
+    slots = [s.strip() for s in args.schedule.split(",")] if args.schedule else None
 
     run_job(
         raw,
@@ -495,6 +602,7 @@ def main():
         limit=args.limit,
         skip=args.skip,
         force=args.force,
+        schedule_slots=slots,
     )
 
 

@@ -171,6 +171,25 @@ You do **not** need Google's full verification for your own use — you may see 
 run the tool by hand once more to refresh the login, and the daily job will
 keep working indefinitely.
 
+## Auto-publish on a schedule (e.g. 3 Shorts/day)
+
+Instead of leaving uploads private for you to publish by hand, let **YouTube**
+publish them for you at set times — even when your PC is off.
+
+In the app: **Settings** tab → tick **"Auto-publish uploads on a schedule"** and
+set your times (e.g. `09:00`, `14:00`, `19:00`) → **Save**. Now every upload is
+stamped with the next open slot: 9 AM, 2 PM, 7 PM, then the next day, and so on.
+
+Upload 21 videos and you've got a **week of 3-per-day** auto-posting. Combine it
+with the daily automation to keep feeding the queue: the tool uploads a batch
+(within quota), and YouTube trickles them out at your chosen times.
+
+- The slot cursor is remembered in `schedule.json`, so slots never collide
+  across runs.
+- Command line: `--schedule "09:00,14:00,19:00"`.
+- Scheduled videos sit as **private** until their time, then go **public**
+  automatically.
+
 ## No duplicates
 
 Every successful upload is recorded in **`uploaded.json`** (TikTok video id →

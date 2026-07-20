@@ -219,6 +219,33 @@ class App:
             row=5, column=1, sticky="w", pady=6
         )
 
+        ttk.Separator(form, orient="horizontal").grid(
+            row=6, column=0, columnspan=2, sticky="ew", pady=10
+        )
+
+        self.set_schedule = tk.BooleanVar(value=self.settings.get("schedule_publish", False))
+        ttk.Checkbutton(
+            form,
+            text="Auto-publish uploads on a schedule (YouTube makes them public for you)",
+            variable=self.set_schedule,
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+
+        ttk.Label(form, text="Publish times each day:").grid(
+            row=8, column=0, sticky="w", pady=6
+        )
+        slots = self.settings.get("schedule_slots", ["09:00", "14:00", "19:00"])
+        slots = (slots + ["", "", ""])[:3]
+        srow = ttk.Frame(form)
+        srow.grid(row=8, column=1, sticky="w", pady=6)
+        self.set_slot1 = tk.StringVar(value=slots[0])
+        self.set_slot2 = tk.StringVar(value=slots[1])
+        self.set_slot3 = tk.StringVar(value=slots[2])
+        for var in (self.set_slot1, self.set_slot2, self.set_slot3):
+            ttk.Entry(srow, textvariable=var, width=8).pack(side="left", padx=(0, 8))
+        ttk.Label(form, text="(24-hour, e.g. 09:00, 14:00, 19:00)").grid(
+            row=9, column=1, sticky="w"
+        )
+
         ttk.Button(tab, text="Save settings", command=self.save_settings_clicked).pack(
             anchor="w", padx=12
         )
@@ -233,6 +260,12 @@ class App:
             s = str(s).strip()
             return int(s) if s.isdigit() and int(s) > 0 else d
 
+        slots = [
+            self.set_slot1.get().strip(),
+            self.set_slot2.get().strip(),
+            self.set_slot3.get().strip(),
+        ]
+        slots = [s for s in slots if s]
         return {
             "profile": self.set_profile.get().strip(),
             "hashtags": self.set_tags.get().strip(),
@@ -241,6 +274,8 @@ class App:
             "as_short": self.set_shorts.get(),
             "cookies_browser": self.set_cookies.get(),
             "schedule_time": self.time_var.get().strip() or "09:00",
+            "schedule_publish": self.set_schedule.get(),
+            "schedule_slots": slots or ["09:00", "14:00", "19:00"],
         }
 
     def save_settings_clicked(self):
@@ -303,6 +338,11 @@ class App:
         limit_raw = self.limit_var.get().strip()
         limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
 
+        slots = (
+            self.settings.get("schedule_slots")
+            if self.settings.get("schedule_publish")
+            else None
+        )
         params = dict(
             raw_urls=[url],
             privacy=self.settings.get("privacy", "private"),
@@ -313,6 +353,7 @@ class App:
             limit=limit,
             skip=0,
             force=self.force_var.get(),
+            schedule_slots=slots,
             should_stop=lambda: self.stop_flag,
         )
 

@@ -6,6 +6,7 @@ token.json
 # Per-user state (history, preferences, run log)
 uploaded.json
 settings.json
+schedule.json
 daily_log.txt
 
 # Downloaded videos
