@@ -56,6 +56,9 @@ class App:
         bar = ttk.Frame(root)
         bar.pack(fill="x", padx=8, pady=(8, 0))
         ttk.Button(bar, text="⟳ Update app", command=self.update_app).pack(side="right")
+        ttk.Button(
+            bar, text="Desktop shortcut", command=self.create_shortcut
+        ).pack(side="right", padx=6)
         ttk.Label(bar, text="TikTok → YouTube", font=("", 11, "bold")).pack(side="left")
 
         nb = ttk.Notebook(root)
@@ -432,6 +435,57 @@ class App:
         else:
             messagebox.showinfo("Automation", msg or "Nothing to turn off.")
         self.refresh_task_status()
+
+    # --------------------------------------------------------- desktop shortcut
+    def create_shortcut(self):
+        """Drop a 'TikTok to YouTube' shortcut on the Windows desktop."""
+        if os.name != "nt":
+            messagebox.showinfo(
+                "Shortcut", "Desktop shortcuts are a Windows-only feature."
+            )
+            return
+
+        # Prefer pythonw.exe so launching doesn't open a black console window.
+        pyw = sys.executable.replace("python.exe", "pythonw.exe")
+        if not os.path.exists(pyw):
+            pyw = sys.executable
+
+        ps = (
+            "$d = [Environment]::GetFolderPath('Desktop')\n"
+            '$s = (New-Object -ComObject WScript.Shell).CreateShortcut('
+            '"$d\\TikTok to YouTube.lnk")\n'
+            f'$s.TargetPath = "{pyw}"\n'
+            f"$s.Arguments = '\"{GUI_FILE}\"'\n"
+            f'$s.WorkingDirectory = "{HERE}"\n'
+            f'$s.IconLocation = "{pyw},0"\n'
+            "$s.Save()\n"
+        )
+        ps1 = os.path.join(HERE, "_make_shortcut.ps1")
+        try:
+            with open(ps1, "w", encoding="utf-8") as f:
+                f.write(ps)
+            out = subprocess.run(
+                ["powershell", "-ExecutionPolicy", "Bypass", "-File", ps1],
+                capture_output=True,
+                text=True,
+            )
+            if out.returncode == 0:
+                messagebox.showinfo(
+                    "Shortcut created",
+                    "Added 'TikTok to YouTube' to your Desktop. ✓\n\n"
+                    "Double-click it anytime to open the app.",
+                )
+            else:
+                messagebox.showerror(
+                    "Shortcut", (out.stdout + out.stderr).strip() or "Failed to create."
+                )
+        except Exception as e:
+            messagebox.showerror("Shortcut", str(e))
+        finally:
+            try:
+                os.remove(ps1)
+            except OSError:
+                pass
 
     # ------------------------------------------------------------- self-update
     def update_app(self):
