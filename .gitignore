@@ -1,0 +1,20 @@
+# Secrets & auth — NEVER commit these
+client_secret.json
+client_secrets.json
+token.json
+
+# Downloaded videos
+downloads/
+*.mp4
+*.webm
+*.part
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
