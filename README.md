@@ -138,6 +138,39 @@ Replace `chrome` with `edge`, `firefox`, `brave`, etc. Close the browser first
 if it complains that the cookie database is locked. This flag also helps if
 individual video downloads get rejected.
 
+## Fully automatic daily uploads (free, ToS-friendly)
+
+Let Windows run the uploader for you once a day — 6 new videos each day, using
+the official API, at no extra cost. This is just you on a schedule; it doesn't
+violate YouTube's terms.
+
+**Set it up (once):**
+
+1. Run the tool by hand once first (open the app or run a command) so you're
+   signed in and it works.
+2. Open `daily_upload.bat` in Notepad and check the `PROFILE` and `HASHTAGS`
+   lines near the top are right. Change the time in `setup_daily_task.bat` if
+   you don't want 9:00 AM.
+3. Double-click **`setup_daily_task.bat`**.
+
+That's it — every day at 9 AM it uploads the next 6 new videos and skips
+everything already done. Output is logged to `daily_log.txt`. To stop it, run
+**`remove_daily_task.bat`**.
+
+### Keeping the daily job logged in (important)
+
+While your Google OAuth app is in **"Testing"** mode, its logins **expire every
+7 days** — which would quietly break the daily job after a week. To make it
+last, publish the app:
+
+- Google Cloud Console → **APIs & Services → OAuth consent screen** →
+  **Publish app** → confirm.
+
+You do **not** need Google's full verification for your own use — you may see an
+"unverified app" notice, which is fine for a personal tool. After publishing,
+run the tool by hand once more to refresh the login, and the daily job will
+keep working indefinitely.
+
 ## No duplicates
 
 Every successful upload is recorded in **`uploaded.json`** (TikTok video id →

@@ -153,10 +153,32 @@ def get_youtube_service():
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, [YOUTUBE_UPLOAD_SCOPE])
 
+    # Scheduled/unattended runs set this so we never hang waiting on a browser.
+    noninteractive = os.environ.get("TIKTOK_NONINTERACTIVE") == "1"
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            from google.auth.exceptions import RefreshError
+
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                if noninteractive:
+                    sys.exit(
+                        "YouTube login expired and can't refresh unattended.\n"
+                        "This usually means your Google OAuth app is still in "
+                        "'Testing' mode (those logins expire every 7 days).\n"
+                        "Fix: publish the app to Production (see README, "
+                        "'Keeping the daily job logged in'), then run the tool "
+                        "once by hand to sign in again."
+                    )
+                creds = None  # fall through to interactive sign-in below
+        if not creds or not creds.valid:
+            if noninteractive:
+                sys.exit(
+                    "YouTube sign-in required but running unattended. Run the "
+                    "tool once by hand (or open the app) to sign in first."
+                )
             if not os.path.exists(CLIENT_SECRETS_FILE):
                 sys.exit(
                     f"Missing {CLIENT_SECRETS_FILE}. See README.md for the one-time "
