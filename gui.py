@@ -23,6 +23,7 @@ import tiktok_to_youtube as engine
 TASK_NAME = "TikTokToYouTube"
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "tiktok_to_youtube.py")
+GUI_FILE = os.path.abspath(__file__)
 LOG_FILE = os.path.join(HERE, "daily_log.txt")
 
 
@@ -51,6 +52,11 @@ class App:
         root.title("TikTok → YouTube Uploader")
         root.geometry("760x660")
         root.minsize(680, 560)
+
+        bar = ttk.Frame(root)
+        bar.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Button(bar, text="⟳ Update app", command=self.update_app).pack(side="right")
+        ttk.Label(bar, text="TikTok → YouTube", font=("", 11, "bold")).pack(side="left")
 
         nb = ttk.Notebook(root)
         nb.pack(fill="both", expand=True, padx=8, pady=8)
@@ -426,6 +432,41 @@ class App:
         else:
             messagebox.showinfo("Automation", msg or "Nothing to turn off.")
         self.refresh_task_status()
+
+    # ------------------------------------------------------------- self-update
+    def update_app(self):
+        """Run `git pull` to fetch the latest version, then offer to relaunch."""
+        try:
+            out = subprocess.run(
+                ["git", "pull"], cwd=HERE, capture_output=True, text=True
+            )
+        except FileNotFoundError:
+            messagebox.showerror(
+                "Update", "Git isn't installed or isn't on your PATH, so the app "
+                "can't update itself. You can install Git, or update by hand."
+            )
+            return
+
+        msg = (out.stdout + out.stderr).strip()
+        if out.returncode != 0:
+            messagebox.showerror(
+                "Update failed",
+                (msg or "git pull failed.")
+                + "\n\nIf it mentions local changes, you may have hand-edited a "
+                "file. Tell your helper and they'll sort it.",
+            )
+            return
+
+        if "up to date" in msg.lower():
+            messagebox.showinfo("Update", "You're already on the latest version. ✓")
+            return
+
+        if messagebox.askyesno(
+            "Update downloaded",
+            f"{msg}\n\nRestart the app now to use the new version?",
+        ):
+            self.root.destroy()
+            os.execl(sys.executable, sys.executable, GUI_FILE)
 
     def run_daily_now(self):
         """Trigger one unattended-style batch immediately, in the background."""

@@ -63,6 +63,9 @@ window with three tabs — no editing `.bat` or `.txt` files:
 **First-time order:** open **Settings**, fill in your profile + hashtags, click
 **Save settings**. Then use **Upload** or **Automation**.
 
+The top-right **⟳ Update app** button pulls the latest version and offers to
+relaunch — so after the first setup you never need the terminal again.
+
 The daily automation is free and within YouTube's rules — it's just your PC
 running the official uploader on a schedule (your PC must be on and awake at the
 chosen time). See **"Keeping the daily job logged in"** below so it doesn't stop
