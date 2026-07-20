@@ -94,9 +94,20 @@ python tiktok_to_youtube.py URL --download-only
 | Flag | What it does |
 |------|--------------|
 | `--privacy {private,unlisted,public}` | YouTube visibility. Default `private`. |
+| `--hashtags "#a #b #c"` | Replace each TikTok's hashtags with your own set. |
+| `--limit N` | Only process the first N videos (testing / daily quota). |
+| `--skip N` | Skip the first N videos (with `--limit`, do the next batch). |
 | `--download-only` | Only download from TikTok; skip YouTube. |
 | `--no-shorts` | Upload as a regular video instead of a Short. |
+| `--cookies-from-browser BROWSER` | Borrow TikTok login cookies from a browser. |
 | `--file links.txt` | Read URLs from a file, one per line. |
+
+**Custom hashtags example:**
+
+```bash
+python tiktok_to_youtube.py "https://www.tiktok.com/@you" \
+  --hashtags "#gtastorymode #gta #memes #gtav #funny #gtamemes #gta6"
+```
 
 ---
 

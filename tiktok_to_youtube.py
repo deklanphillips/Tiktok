@@ -142,16 +142,33 @@ def get_youtube_service():
     return build("youtube", "v3", credentials=creds)
 
 
-def build_shorts_metadata(video: dict, as_short: bool, privacy: str) -> dict:
+def _strip_hashtags(text: str) -> str:
+    """Remove #hashtag tokens from a caption, leaving any real words behind."""
+    words = [w for w in text.split() if not w.startswith("#")]
+    return " ".join(words).strip()
+
+
+def build_shorts_metadata(
+    video: dict, as_short: bool, privacy: str, hashtags: str = None
+) -> dict:
     """Turn TikTok metadata into a YouTube upload body."""
     title = video["title"]
     description = video["description"]
+
+    if hashtags:
+        # Replace the TikTok hashtags with the user's own set. Keep any
+        # non-hashtag caption text (usually there's none), then append.
+        base_title = _strip_hashtags(title)
+        base_desc = _strip_hashtags(description)
+        title = f"{base_title} {hashtags}".strip()
+        description = f"{base_desc}\n\n{hashtags}".strip()
 
     if as_short:
         # #Shorts in title/description is how YouTube classifies vertical uploads.
         if "#shorts" not in title.lower():
             title = f"{title} #Shorts"
-        description = f"{description}\n\n#Shorts".strip()
+        if "#shorts" not in description.lower():
+            description = f"{description}\n\n#Shorts".strip()
 
     # YouTube titles cap at 100 chars.
     title = title[:100]
@@ -169,11 +186,13 @@ def build_shorts_metadata(video: dict, as_short: bool, privacy: str) -> dict:
     }
 
 
-def upload_to_youtube(youtube, video: dict, as_short: bool, privacy: str) -> str:
+def upload_to_youtube(
+    youtube, video: dict, as_short: bool, privacy: str, hashtags: str = None
+) -> str:
     """Upload a downloaded video. Returns the new YouTube video ID."""
     from googleapiclient.http import MediaFileUpload
 
-    body = build_shorts_metadata(video, as_short, privacy)
+    body = build_shorts_metadata(video, as_short, privacy, hashtags)
     media = MediaFileUpload(video["filepath"], chunksize=-1, resumable=True)
 
     request = youtube.videos().insert(
@@ -255,6 +274,12 @@ def main():
         "brave, ...) so TikTok will list/serve your videos",
     )
     parser.add_argument(
+        "--hashtags",
+        metavar='"#a #b #c"',
+        help="Replace each TikTok's hashtags with your own set on YouTube, "
+        'e.g. --hashtags "#gta #memes #funny"',
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         metavar="N",
@@ -294,7 +319,11 @@ def main():
                 continue
 
             video_id = upload_to_youtube(
-                youtube, video, as_short=not args.no_shorts, privacy=args.privacy
+                youtube,
+                video,
+                as_short=not args.no_shorts,
+                privacy=args.privacy,
+                hashtags=args.hashtags,
             )
             print(f"    uploaded: https://youtube.com/watch?v={video_id} ({args.privacy})")
         except Exception as e:
