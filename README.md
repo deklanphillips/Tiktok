@@ -49,7 +49,19 @@ again.
 > `client_secret.json` and `token.json` are secrets — they're already in
 > `.gitignore` and must never be committed.
 
-## 3. Run it
+## 3. Run it — the easy way (desktop app)
+
+Prefer a window with buttons instead of typing commands? Just **double-click
+`Start.bat`** (or run `python gui.py`).
+
+You get a small app where you paste your TikTok profile URL, your hashtags are
+pre-filled, and you pick privacy / how many to do — then hit **Start** and
+watch the progress. It uses the same engine as the command line below.
+
+> Editing the pre-filled hashtags: open `gui.py` and change the
+> `DEFAULT_HASHTAGS` line near the top.
+
+## 3b. Run it — the command line
 
 ### Pull your whole profile at once
 

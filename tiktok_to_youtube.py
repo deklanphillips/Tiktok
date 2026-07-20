@@ -208,28 +208,21 @@ def upload_to_youtube(
     return response["id"]
 
 
-# --- CLI --------------------------------------------------------------------
-def collect_urls(args) -> list:
-    """Gather URLs from args/file, expanding any profile URL into its videos."""
-    raw = list(args.urls)
-    if args.file:
-        with open(args.file) as f:
-            raw += [line.strip() for line in f if line.strip() and not line.startswith("#")]
-
+# --- Core job (shared by the CLI and the GUI) -------------------------------
+def expand_urls(raw_urls, cookies_browser=None) -> list:
+    """Expand any profile URLs in the list into their individual video URLs."""
     urls = []
-    for url in raw:
+    for url in raw_urls:
         if is_profile_url(url):
             print(f"Fetching all videos from profile: {url}")
             try:
-                found = expand_profile(url, args.cookies_from_browser)
+                found = expand_profile(url, cookies_browser)
             except Exception as e:
                 print(f"  Could not list this profile: {e}", file=sys.stderr)
-                if not args.cookies_from_browser:
+                if not cookies_browser:
                     print(
                         "  TikTok often hides an account's video list from logged-out\n"
-                        "  requests. Try adding your browser cookies, e.g.:\n"
-                        "    python tiktok_to_youtube.py \"<profile url>\" "
-                        "--cookies-from-browser chrome",
+                        "  requests. Try adding your browser cookies (chrome/edge/...).",
                         file=sys.stderr,
                     )
                 continue
@@ -240,6 +233,60 @@ def collect_urls(args) -> list:
     return urls
 
 
+def run_job(
+    raw_urls,
+    *,
+    privacy="private",
+    download_only=False,
+    as_short=True,
+    cookies_browser=None,
+    hashtags=None,
+    limit=None,
+    skip=0,
+    should_stop=None,
+):
+    """Download and upload a batch of TikToks. Prints progress via print().
+
+    `should_stop` is an optional callable returning True to abort early
+    (used by the GUI's Stop button).
+    """
+    urls = expand_urls(raw_urls, cookies_browser)
+    if skip:
+        urls = urls[skip:]
+    if limit is not None:
+        urls = urls[:limit]
+
+    if not urls:
+        print("No videos to process.")
+        return
+
+    print(f"\nProcessing {len(urls)} video(s).")
+    youtube = None if download_only else get_youtube_service()
+
+    for i, url in enumerate(urls, 1):
+        if should_stop and should_stop():
+            print("\nStopped by user.")
+            return
+        print(f"\n[{i}/{len(urls)}] {url}")
+        try:
+            video = download_tiktok(url, cookies_browser)
+            print(f"    downloaded: {os.path.basename(video['filepath'])}")
+            print(f"    title: {video['title']}")
+
+            if download_only:
+                continue
+
+            video_id = upload_to_youtube(
+                youtube, video, as_short=as_short, privacy=privacy, hashtags=hashtags
+            )
+            print(f"    uploaded: https://youtube.com/watch?v={video_id} ({privacy})")
+        except Exception as e:
+            print(f"    ERROR: {e}", file=sys.stderr)
+
+    print("\nDone.")
+
+
+# --- CLI --------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
         description="Download your TikToks and upload them to YouTube as Shorts."
@@ -296,40 +343,23 @@ def main():
     )
     args = parser.parse_args()
 
-    urls = collect_urls(args)
-    if not urls:
+    raw = list(args.urls)
+    if args.file:
+        with open(args.file) as f:
+            raw += [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    if not raw:
         parser.error("Give at least one TikTok URL, or use --file links.txt")
 
-    if args.skip:
-        urls = urls[args.skip:]
-    if args.limit is not None:
-        urls = urls[: args.limit]
-    print(f"\nProcessing {len(urls)} video(s).")
-
-    youtube = None if args.download_only else get_youtube_service()
-
-    for i, url in enumerate(urls, 1):
-        print(f"\n[{i}/{len(urls)}] {url}")
-        try:
-            video = download_tiktok(url, args.cookies_from_browser)
-            print(f"    downloaded: {os.path.basename(video['filepath'])}")
-            print(f"    title: {video['title']}")
-
-            if args.download_only:
-                continue
-
-            video_id = upload_to_youtube(
-                youtube,
-                video,
-                as_short=not args.no_shorts,
-                privacy=args.privacy,
-                hashtags=args.hashtags,
-            )
-            print(f"    uploaded: https://youtube.com/watch?v={video_id} ({args.privacy})")
-        except Exception as e:
-            print(f"    ERROR: {e}", file=sys.stderr)
-
-    print("\nDone.")
+    run_job(
+        raw,
+        privacy=args.privacy,
+        download_only=args.download_only,
+        as_short=not args.no_shorts,
+        cookies_browser=args.cookies_from_browser,
+        hashtags=args.hashtags,
+        limit=args.limit,
+        skip=args.skip,
+    )
 
 
 if __name__ == "__main__":
