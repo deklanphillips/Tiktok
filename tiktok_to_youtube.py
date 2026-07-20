@@ -49,6 +49,8 @@ DEFAULT_SETTINGS = {
     # Auto-publish scheduling: spread uploads across these times each day.
     "schedule_publish": False,
     "schedule_slots": ["09:00", "14:00", "19:00"],
+    # Which weekdays are allowed for auto-publish (Mon=0 .. Sun=6).
+    "schedule_days": [0, 1, 2, 3, 4, 5, 6],
 }
 
 # Tracks the last publish slot handed out, so slots never collide across runs.
@@ -124,12 +126,19 @@ def _parse_slots(slots):
     return sorted(set(times))
 
 
-def next_publish_time(slots, state):
+def next_publish_time(slots, state, days=None):
     """Return (local_datetime, iso_utc) for the next free publish slot and
-    advance `state` so the following call gets the slot after it."""
+    advance `state` so the following call gets the slot after it.
+
+    `days` is an optional set/list of allowed weekday numbers (Mon=0 .. Sun=6);
+    days not listed are skipped. Empty/None means every day is allowed.
+    """
     times = _parse_slots(slots)
     if not times:
         return None, None
+    allowed = set(days) if days else set(range(7))
+    if not allowed:
+        allowed = set(range(7))
 
     now = datetime.datetime.now().astimezone()
     cursor = now
@@ -144,14 +153,15 @@ def next_publish_time(slots, state):
 
     day = cursor.date()
     for _ in range(3660):  # safety bound (~10 years)
-        for t in times:
-            cand = datetime.datetime.combine(day, t).astimezone()
-            if cand > cursor:
-                state["last"] = cand.isoformat()
-                iso_utc = cand.astimezone(datetime.timezone.utc).strftime(
-                    "%Y-%m-%dT%H:%M:%SZ"
-                )
-                return cand, iso_utc
+        if day.weekday() in allowed:
+            for t in times:
+                cand = datetime.datetime.combine(day, t).astimezone()
+                if cand > cursor:
+                    state["last"] = cand.isoformat()
+                    iso_utc = cand.astimezone(datetime.timezone.utc).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    )
+                    return cand, iso_utc
         day += datetime.timedelta(days=1)
     return None, None
 
@@ -404,6 +414,7 @@ def run_job(
     skip=0,
     force=False,
     schedule_slots=None,
+    schedule_days=None,
     should_stop=None,
 ):
     """Download and upload a batch of TikToks. Prints progress via print().
@@ -411,7 +422,8 @@ def run_job(
     Videos already recorded in uploaded.json are skipped automatically (unless
     `force` is True), so re-runs never create duplicates. If `schedule_slots`
     (a list like ["09:00","14:00","19:00"]) is given, each upload is set to
-    auto-publish at the next free slot instead of staying private. `should_stop`
+    auto-publish at the next free slot instead of staying private;
+    `schedule_days` limits which weekdays get slots (Mon=0..Sun=6). `should_stop`
     is an optional callable returning True to abort early (GUI Stop button).
     """
     urls = expand_urls(raw_urls, cookies_browser)
@@ -453,7 +465,9 @@ def run_job(
 
             publish_at = None
             if schedule_slots:
-                local_dt, publish_at = next_publish_time(schedule_slots, schedule_state)
+                local_dt, publish_at = next_publish_time(
+                    schedule_slots, schedule_state, schedule_days
+                )
                 save_schedule(schedule_state)  # persist the cursor immediately
 
             video_id = upload_to_youtube(
@@ -492,6 +506,7 @@ def run_daily():
     s = load_settings()
     profile = (s.get("profile") or "").strip()
     slots = s.get("schedule_slots") if s.get("schedule_publish") else None
+    days = s.get("schedule_days") if s.get("schedule_publish") else None
 
     with open("daily_log.txt", "a", encoding="utf-8") as log:
         with redirect_stdout(log), redirect_stderr(log):
@@ -507,6 +522,7 @@ def run_daily():
                     hashtags=(s.get("hashtags") or "").strip() or None,
                     limit=int(s.get("daily_count", 6)) or None,
                     schedule_slots=slots,
+                    schedule_days=days,
                 )
             print("==== Run finished ====")
 
@@ -581,6 +597,12 @@ def main():
         help="Auto-publish uploads at these times each day (comma-separated), "
         "instead of leaving them private. Rolls over to the next day when full.",
     )
+    parser.add_argument(
+        "--schedule-days",
+        metavar='"mon,tue,wed"',
+        help="Limit --schedule to these weekdays (comma-separated: "
+        "mon,tue,wed,thu,fri,sat,sun). Default: every day.",
+    )
     args = parser.parse_args()
 
     raw = list(args.urls)
@@ -591,6 +613,14 @@ def main():
         parser.error("Give at least one TikTok URL, or use --file links.txt")
 
     slots = [s.strip() for s in args.schedule.split(",")] if args.schedule else None
+    days = None
+    if args.schedule_days:
+        names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        days = [
+            names.index(d.strip().lower()[:3])
+            for d in args.schedule_days.split(",")
+            if d.strip().lower()[:3] in names
+        ]
 
     run_job(
         raw,
@@ -603,6 +633,7 @@ def main():
         skip=args.skip,
         force=args.force,
         schedule_slots=slots,
+        schedule_days=days,
     )
 
 

@@ -255,6 +255,17 @@ class App:
             row=9, column=1, sticky="w"
         )
 
+        ttk.Label(form, text="On these days:").grid(row=10, column=0, sticky="w", pady=6)
+        drow = ttk.Frame(form)
+        drow.grid(row=10, column=1, sticky="w", pady=6)
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        active_days = set(self.settings.get("schedule_days", list(range(7))))
+        self.day_vars = []
+        for idx, name in enumerate(day_names):
+            var = tk.BooleanVar(value=idx in active_days)
+            self.day_vars.append(var)
+            ttk.Checkbutton(drow, text=name, variable=var).pack(side="left")
+
         ttk.Button(tab, text="Save settings", command=self.save_settings_clicked).pack(
             anchor="w", padx=12
         )
@@ -275,6 +286,7 @@ class App:
             self.set_slot3.get().strip(),
         ]
         slots = [s for s in slots if s]
+        days = [i for i, v in enumerate(self.day_vars) if v.get()]
         return {
             "profile": self.set_profile.get().strip(),
             "hashtags": self.set_tags.get().strip(),
@@ -285,6 +297,7 @@ class App:
             "schedule_time": self.time_var.get().strip() or "09:00",
             "schedule_publish": self.set_schedule.get(),
             "schedule_slots": slots or ["09:00", "14:00", "19:00"],
+            "schedule_days": days or list(range(7)),
         }
 
     def save_settings_clicked(self):
@@ -347,11 +360,9 @@ class App:
         limit_raw = self.limit_var.get().strip()
         limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
 
-        slots = (
-            self.settings.get("schedule_slots")
-            if self.settings.get("schedule_publish")
-            else None
-        )
+        scheduling = self.settings.get("schedule_publish")
+        slots = self.settings.get("schedule_slots") if scheduling else None
+        days = self.settings.get("schedule_days") if scheduling else None
         params = dict(
             raw_urls=[url],
             privacy=self.settings.get("privacy", "private"),
@@ -363,6 +374,7 @@ class App:
             skip=0,
             force=self.force_var.get(),
             schedule_slots=slots,
+            schedule_days=days,
             should_stop=lambda: self.stop_flag,
         )
 

@@ -187,9 +187,12 @@ Upload 21 videos and you've got a **week of 3-per-day** auto-posting. Combine it
 with the daily automation to keep feeding the queue: the tool uploads a batch
 (within quota), and YouTube trickles them out at your chosen times.
 
+- **Pick which days:** in Settings, tick the weekdays (Mon–Sun) to post on —
+  e.g. weekdays only, and weekends are skipped automatically.
 - The slot cursor is remembered in `schedule.json`, so slots never collide
   across runs.
-- Command line: `--schedule "09:00,14:00,19:00"`.
+- Command line: `--schedule "09:00,14:00,19:00"` plus optional
+  `--schedule-days "mon,tue,wed,thu,fri"`.
 - Scheduled videos sit as **private** until their time, then go **public**
   automatically.
 
