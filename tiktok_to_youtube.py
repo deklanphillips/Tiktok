@@ -468,7 +468,6 @@ def run_job(
                 local_dt, publish_at = next_publish_time(
                     schedule_slots, schedule_state, schedule_days
                 )
-                save_schedule(schedule_state)  # persist the cursor immediately
 
             video_id = upload_to_youtube(
                 youtube,
@@ -479,6 +478,7 @@ def run_job(
                 publish_at=publish_at,
             )
             if publish_at:
+                save_schedule(schedule_state)  # commit the slot now it's used
                 print(
                     f"    uploaded: https://youtube.com/watch?v={video_id} — "
                     f"goes live {local_dt:%a %b %d %I:%M %p}"
@@ -492,7 +492,16 @@ def run_job(
                 uploaded[key] = video_id
                 save_uploaded(uploaded)
         except Exception as e:
-            print(f"    ERROR: {e}", file=sys.stderr)
+            msg = str(e)
+            print(f"    ERROR: {msg}", file=sys.stderr)
+            # Hit YouTube's daily upload limit — no point downloading the rest.
+            if "quota" in msg.lower():
+                print(
+                    "\nYouTube's daily upload quota is used up for today. Stopping.\n"
+                    "The remaining videos were not touched — just run again after it "
+                    "resets (midnight Pacific Time) and it'll continue from here."
+                )
+                break
 
     print("\nDone.")
 
