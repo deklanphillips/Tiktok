@@ -109,6 +109,7 @@ python tiktok_to_youtube.py URL --download-only
 | `--hashtags "#a #b #c"` | Replace each TikTok's hashtags with your own set. |
 | `--limit N` | Only process the first N videos (testing / daily quota). |
 | `--skip N` | Skip the first N videos (with `--limit`, do the next batch). |
+| `--force` | Re-upload even videos already in `uploaded.json`. |
 | `--download-only` | Only download from TikTok; skip YouTube. |
 | `--no-shorts` | Upload as a regular video instead of a Short. |
 | `--cookies-from-browser BROWSER` | Borrow TikTok login cookies from a browser. |
@@ -136,6 +137,19 @@ python tiktok_to_youtube.py "https://www.tiktok.com/@you" --cookies-from-browser
 Replace `chrome` with `edge`, `firefox`, `brave`, etc. Close the browser first
 if it complains that the cookie database is locked. This flag also helps if
 individual video downloads get rejected.
+
+## No duplicates
+
+Every successful upload is recorded in **`uploaded.json`** (TikTok video id →
+YouTube video id). On any later run, videos already in that file are skipped
+automatically — so you can safely point the tool at your whole profile every
+day and it will only ever upload the *new* ones. `--limit`/`--skip` apply to
+what's left after that filtering, so "do 6" always means 6 fresh videos.
+
+- Want to redo one anyway? Use `--force` (CLI) or the **"Re-upload
+  duplicates"** checkbox (app).
+- `uploaded.json` lives in the project folder and is git-ignored (it's your
+  personal history). Delete it to start fresh; back it up to keep your history.
 
 ## Notes & limits
 

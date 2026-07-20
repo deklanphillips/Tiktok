@@ -16,7 +16,9 @@ See README.md for the one-time Google/YouTube setup.
 """
 
 import argparse
+import json
 import os
+import re
 import sys
 
 import yt_dlp
@@ -29,6 +31,33 @@ CLIENT_SECRETS_FILE = "client_secret.json"
 TOKEN_FILE = "token.json"
 
 DOWNLOAD_DIR = "downloads"
+
+# Remembers which TikToks have already been uploaded, so re-runs skip them.
+UPLOADED_FILE = "uploaded.json"
+
+
+# --- Upload history (duplicate prevention) ----------------------------------
+def load_uploaded() -> dict:
+    """Load the {tiktok_id: youtube_id} record of past uploads."""
+    try:
+        with open(UPLOADED_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_uploaded(record: dict) -> None:
+    with open(UPLOADED_FILE, "w") as f:
+        json.dump(record, f, indent=2)
+
+
+def extract_tiktok_id(url: str):
+    """Pull the numeric video id out of a TikTok URL, or None."""
+    m = re.search(r"/video/(\d+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\d{6,})", url)  # fallback for other URL shapes
+    return m.group(1) if m else None
 
 
 # --- Downloading ------------------------------------------------------------
@@ -72,6 +101,7 @@ def download_tiktok(url: str, cookies_browser=None) -> dict:
 
     caption = (info.get("title") or info.get("description") or "").strip()
     return {
+        "id": str(info.get("id", "")),
         "filepath": filepath,
         "title": caption or "TikTok video",
         "description": info.get("description", "") or caption,
@@ -243,21 +273,34 @@ def run_job(
     hashtags=None,
     limit=None,
     skip=0,
+    force=False,
     should_stop=None,
 ):
     """Download and upload a batch of TikToks. Prints progress via print().
 
-    `should_stop` is an optional callable returning True to abort early
-    (used by the GUI's Stop button).
+    Videos already recorded in uploaded.json are skipped automatically (unless
+    `force` is True), so re-runs never create duplicates. `should_stop` is an
+    optional callable returning True to abort early (used by the GUI's Stop
+    button).
     """
     urls = expand_urls(raw_urls, cookies_browser)
+
+    uploaded = load_uploaded()
+    if not force and uploaded:
+        before = len(urls)
+        urls = [u for u in urls if extract_tiktok_id(u) not in uploaded]
+        already = before - len(urls)
+        if already:
+            print(f"Skipping {already} video(s) already uploaded previously.")
+
+    # skip/limit apply to what's LEFT, so "do 6" means 6 *new* videos.
     if skip:
         urls = urls[skip:]
     if limit is not None:
         urls = urls[:limit]
 
     if not urls:
-        print("No videos to process.")
+        print("Nothing new to process.")
         return
 
     print(f"\nProcessing {len(urls)} video(s).")
@@ -280,6 +323,12 @@ def run_job(
                 youtube, video, as_short=as_short, privacy=privacy, hashtags=hashtags
             )
             print(f"    uploaded: https://youtube.com/watch?v={video_id} ({privacy})")
+
+            # Record it so future runs skip this video.
+            key = video.get("id") or extract_tiktok_id(url)
+            if key:
+                uploaded[key] = video_id
+                save_uploaded(uploaded)
         except Exception as e:
             print(f"    ERROR: {e}", file=sys.stderr)
 
@@ -338,8 +387,13 @@ def main():
         type=int,
         default=0,
         metavar="N",
-        help="Skip the first N videos (use with --limit to do the next batch "
-        "the following day, e.g. --skip 6 --limit 6)",
+        help="Skip the first N of the remaining (not-yet-uploaded) videos",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-upload even videos already recorded in uploaded.json "
+        "(by default those are skipped to avoid duplicates)",
     )
     args = parser.parse_args()
 
@@ -359,6 +413,7 @@ def main():
         hashtags=args.hashtags,
         limit=args.limit,
         skip=args.skip,
+        force=args.force,
     )
 
 

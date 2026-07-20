@@ -113,6 +113,13 @@ class App:
             form, text="Download only (no YouTube)", variable=self.download_only_var
         ).grid(row=5, column=2, columnspan=2, sticky="w", pady=4)
 
+        self.force_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            form,
+            text="Re-upload duplicates (ignore history)",
+            variable=self.force_var,
+        ).grid(row=6, column=1, columnspan=3, sticky="w", pady=4)
+
         # --- Buttons ---
         btns = ttk.Frame(root)
         btns.pack(fill="x", **pad)
@@ -176,6 +183,7 @@ class App:
             hashtags=self.tags_var.get().strip() or None,
             limit=limit,
             skip=skip,
+            force=self.force_var.get(),
             should_stop=lambda: self.stop_flag,
         )
 
