@@ -1,5 +1,5 @@
 @echo off
-REM Double-click this file to open the TikTok -> YouTube uploader window.
+REM Opens the app. Launches with pythonw (no console) and closes this window.
 cd /d "%~dp0"
-python gui.py
-if errorlevel 1 pause
+start "" pythonw gui.py
+exit
