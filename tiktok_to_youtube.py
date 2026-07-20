@@ -32,7 +32,18 @@ DOWNLOAD_DIR = "downloads"
 
 
 # --- Downloading ------------------------------------------------------------
-def download_tiktok(url: str) -> dict:
+def _cookie_opts(cookies_browser):
+    """yt-dlp options for borrowing login cookies from a local browser.
+
+    TikTok often refuses to list/serve videos to anonymous requests; using the
+    cookies from a browser where you're logged in gets past that.
+    """
+    if cookies_browser:
+        return {"cookiesfrombrowser": (cookies_browser, None, None, None)}
+    return {}
+
+
+def download_tiktok(url: str, cookies_browser=None) -> dict:
     """Download a single TikTok. Returns dict with filepath, title, description."""
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -44,6 +55,7 @@ def download_tiktok(url: str) -> dict:
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        **_cookie_opts(cookies_browser),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -72,13 +84,14 @@ def is_profile_url(url: str) -> bool:
     return "/@" in url and "/video/" not in url
 
 
-def expand_profile(url: str) -> list:
+def expand_profile(url: str, cookies_browser=None) -> list:
     """Given a TikTok profile URL, return every video URL on that account."""
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": "in_playlist",  # list entries without downloading
         "skip_download": True,
+        **_cookie_opts(cookies_browser),
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -188,7 +201,19 @@ def collect_urls(args) -> list:
     for url in raw:
         if is_profile_url(url):
             print(f"Fetching all videos from profile: {url}")
-            found = expand_profile(url)
+            try:
+                found = expand_profile(url, args.cookies_from_browser)
+            except Exception as e:
+                print(f"  Could not list this profile: {e}", file=sys.stderr)
+                if not args.cookies_from_browser:
+                    print(
+                        "  TikTok often hides an account's video list from logged-out\n"
+                        "  requests. Try adding your browser cookies, e.g.:\n"
+                        "    python tiktok_to_youtube.py \"<profile url>\" "
+                        "--cookies-from-browser chrome",
+                        file=sys.stderr,
+                    )
+                continue
             print(f"  found {len(found)} videos")
             urls += found
         else:
@@ -223,6 +248,12 @@ def main():
         action="store_true",
         help="Upload as a regular video instead of tagging it as a Short",
     )
+    parser.add_argument(
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        help="Use login cookies from a local browser (chrome, edge, firefox, "
+        "brave, ...) so TikTok will list/serve your videos",
+    )
     args = parser.parse_args()
 
     urls = collect_urls(args)
@@ -234,7 +265,7 @@ def main():
     for i, url in enumerate(urls, 1):
         print(f"\n[{i}/{len(urls)}] {url}")
         try:
-            video = download_tiktok(url)
+            video = download_tiktok(url, args.cookies_from_browser)
             print(f"    downloaded: {os.path.basename(video['filepath'])}")
             print(f"    title: {video['title']}")
 

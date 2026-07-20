@@ -100,6 +100,20 @@ python tiktok_to_youtube.py URL --download-only
 
 ---
 
+## Troubleshooting
+
+**"This account does not have any videos posted" (but it clearly does):**
+TikTok often refuses to list an account's videos for logged-out requests. Fix
+it by borrowing the login cookies from a browser you're signed into TikTok on:
+
+```bash
+python tiktok_to_youtube.py "https://www.tiktok.com/@you" --cookies-from-browser chrome
+```
+
+Replace `chrome` with `edge`, `firefox`, `brave`, etc. Close the browser first
+if it complains that the cookie database is locked. This flag also helps if
+individual video downloads get rejected.
+
 ## Notes & limits
 
 - **Quota — important for a full profile:** The YouTube Data API gives each
