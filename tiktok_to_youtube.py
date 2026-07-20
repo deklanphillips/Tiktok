@@ -67,6 +67,37 @@ def download_tiktok(url: str) -> dict:
     }
 
 
+def is_profile_url(url: str) -> bool:
+    """True for a profile/channel URL (a whole account) vs a single video."""
+    return "/@" in url and "/video/" not in url
+
+
+def expand_profile(url: str) -> list:
+    """Given a TikTok profile URL, return every video URL on that account."""
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",  # list entries without downloading
+        "skip_download": True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    entries = info.get("entries") or []
+    uploader = info.get("uploader", "")
+    urls = []
+    for e in entries:
+        if not e:
+            continue
+        u = e.get("url") or e.get("webpage_url")
+        if u and u.startswith("http"):
+            urls.append(u)
+        elif e.get("id"):
+            who = e.get("uploader") or uploader
+            urls.append(f"https://www.tiktok.com/@{who}/video/{e['id']}")
+    return urls
+
+
 # --- YouTube auth + upload --------------------------------------------------
 def get_youtube_service():
     """Authenticate (cached after first run) and return a YouTube API client."""
@@ -147,10 +178,21 @@ def upload_to_youtube(youtube, video: dict, as_short: bool, privacy: str) -> str
 
 # --- CLI --------------------------------------------------------------------
 def collect_urls(args) -> list:
-    urls = list(args.urls)
+    """Gather URLs from args/file, expanding any profile URL into its videos."""
+    raw = list(args.urls)
     if args.file:
         with open(args.file) as f:
-            urls += [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            raw += [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    urls = []
+    for url in raw:
+        if is_profile_url(url):
+            print(f"Fetching all videos from profile: {url}")
+            found = expand_profile(url)
+            print(f"  found {len(found)} videos")
+            urls += found
+        else:
+            urls.append(url)
     return urls
 
 
@@ -158,7 +200,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Download your TikToks and upload them to YouTube as Shorts."
     )
-    parser.add_argument("urls", nargs="*", help="One or more TikTok video URLs")
+    parser.add_argument(
+        "urls",
+        nargs="*",
+        help="TikTok video URLs, or a profile URL (e.g. https://www.tiktok.com/@you) "
+        "to pull every video from that account",
+    )
     parser.add_argument("--file", help="Text file with one TikTok URL per line")
     parser.add_argument(
         "--privacy",

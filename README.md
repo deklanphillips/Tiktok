@@ -51,8 +51,21 @@ again.
 
 ## 3. Run it
 
-Download **and** upload one video (uploads as **private** by default so you can
-review before publishing):
+### Pull your whole profile at once
+
+Give it your profile URL and it downloads **every** video on the account, then
+uploads them all as private Shorts (keeping each TikTok's original hashtags):
+
+```bash
+python tiktok_to_youtube.py "https://www.tiktok.com/@yourusername"
+```
+
+They land on YouTube as **private**, so you can then open **YouTube Studio →
+Content**, and set a publish date/time on each one to **schedule** them.
+
+### One or a few videos
+
+Download **and** upload a single video:
 
 ```bash
 python tiktok_to_youtube.py "https://www.tiktok.com/@you/video/1234567890"
@@ -89,9 +102,15 @@ python tiktok_to_youtube.py URL --download-only
 
 ## Notes & limits
 
-- **Quota:** The YouTube Data API gives each project ~10,000 units/day, and an
-  upload costs ~1,600 units — so roughly **6 uploads per day** by default. You
-  can request more from Google if you need it.
+- **Quota — important for a full profile:** The YouTube Data API gives each
+  project ~10,000 units/day, and an upload costs ~1,600 units — so roughly
+  **6 uploads per day** by default. If your profile has more than ~6 videos,
+  the run will upload the first batch and then start reporting a
+  `quotaExceeded` error on the rest. Just re-run the same command the next day
+  (already-uploaded ones are skipped only if you remove them from your list),
+  or request a quota increase from Google to do them all at once.
+- **Hashtags:** Each video keeps the original hashtags from its TikTok caption,
+  with `#Shorts` added on.
 - **Shorts:** A video is treated as a Short when it's vertical and ≤ 3 minutes.
   The tool adds `#Shorts` to help YouTube classify it.
 - **Start private.** The default privacy is `private` on purpose — download a
