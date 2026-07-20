@@ -254,11 +254,32 @@ def main():
         help="Use login cookies from a local browser (chrome, edge, firefox, "
         "brave, ...) so TikTok will list/serve your videos",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        metavar="N",
+        help="Only process the first N videos (handy for testing, or for "
+        "staying under YouTube's daily upload quota)",
+    )
+    parser.add_argument(
+        "--skip",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Skip the first N videos (use with --limit to do the next batch "
+        "the following day, e.g. --skip 6 --limit 6)",
+    )
     args = parser.parse_args()
 
     urls = collect_urls(args)
     if not urls:
         parser.error("Give at least one TikTok URL, or use --file links.txt")
+
+    if args.skip:
+        urls = urls[args.skip:]
+    if args.limit is not None:
+        urls = urls[: args.limit]
+    print(f"\nProcessing {len(urls)} video(s).")
 
     youtube = None if args.download_only else get_youtube_service()
 
