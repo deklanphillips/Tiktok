@@ -227,8 +227,117 @@ def is_profile_url(url: str) -> bool:
     return "/@" in url and "/video/" not in url
 
 
-def expand_profile(url: str, cookies_browser=None) -> list:
-    """Given a TikTok profile URL, return every video URL on that account."""
+def _load_netscape_cookies(path):
+    """Parse a cookies.txt (Netscape format) into Playwright cookie dicts."""
+    cookies = []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("#HttpOnly_"):
+                line = line[len("#HttpOnly_"):]
+            elif not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) != 7:
+                continue
+            domain, _flag, cpath, secure, expires, name, value = parts
+            c = {
+                "name": name,
+                "value": value,
+                "domain": domain,
+                "path": cpath or "/",
+                "secure": secure.upper() == "TRUE",
+            }
+            try:
+                exp = int(expires)
+                if exp > 0:
+                    c["expires"] = exp
+            except ValueError:
+                pass
+            cookies.append(c)
+    return cookies
+
+
+def _launch_chromium(p):
+    """Launch headless Chromium, downloading the browser once if it's missing."""
+    try:
+        return p.chromium.launch(headless=True)
+    except Exception:
+        import subprocess
+
+        print("  (one-time) downloading the browser engine, please wait...")
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"], check=False
+        )
+        return p.chromium.launch(headless=True)
+
+
+def scrape_profile_videos(url, cookies_browser=None, log=print) -> list:
+    """Load a TikTok profile in a real (headless) browser, scroll to the bottom
+    so every video loads, and return all the video URLs.
+
+    This is the reliable fallback for when TikTok's listing API returns an empty
+    page: a real browser runs TikTok's own JavaScript, so the videos actually
+    appear and can be scraped.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise RuntimeError(
+            "Automatic profile loading needs Playwright. Install it once:\n"
+            "    pip install playwright\n"
+            "    python -m playwright install chromium"
+        )
+
+    seen, links = set(), []
+    with sync_playwright() as p:
+        browser = _launch_chromium(p)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 900},
+        )
+        cb = str(cookies_browser or "")
+        if cb and os.path.isfile(os.path.expanduser(cb)):
+            try:
+                context.add_cookies(_load_netscape_cookies(os.path.expanduser(cb)))
+            except Exception:
+                pass  # cookies are optional for public profiles
+
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+
+        idle = 0
+        for _ in range(600):  # safety bound
+            hrefs = page.eval_on_selector_all(
+                'a[href*="/video/"]', "els => els.map(e => e.href)"
+            )
+            new = 0
+            for h in hrefs:
+                m = re.search(r"/video/(\d+)", h)
+                if m and m.group(1) not in seen:
+                    seen.add(m.group(1))
+                    links.append(h.split("?")[0])
+                    new += 1
+            if new:
+                log(f"  ...loaded {len(links)} videos so far")
+                idle = 0
+            else:
+                idle += 1
+            if idle >= 6:  # nothing new after several scrolls -> reached the end
+                break
+            page.mouse.wheel(0, 24000)
+            page.wait_for_timeout(1200)
+        browser.close()
+    return links
+
+
+def _expand_profile_ytdlp(url: str, cookies_browser=None) -> list:
+    """Fast path: ask yt-dlp to list a profile's videos via TikTok's API."""
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -251,6 +360,24 @@ def expand_profile(url: str, cookies_browser=None) -> list:
         elif e.get("id"):
             who = e.get("uploader") or uploader
             urls.append(f"https://www.tiktok.com/@{who}/video/{e['id']}")
+    return urls
+
+
+def expand_profile(url: str, cookies_browser=None, log=print) -> list:
+    """Return every video URL on a TikTok account.
+
+    Tries yt-dlp's fast API listing first; if TikTok returns nothing (its
+    listing API is unreliable and often serves an empty page), falls back to
+    loading the profile in a real browser and scraping the links.
+    """
+    urls = []
+    try:
+        urls = _expand_profile_ytdlp(url, cookies_browser)
+    except Exception as e:
+        log(f"  Fast listing failed ({e}).")
+    if not urls:
+        log("  Listing came back empty — loading the profile in a browser instead...")
+        urls = scrape_profile_videos(url, cookies_browser, log=log)
     return urls
 
 
@@ -430,10 +557,9 @@ def expand_urls(raw_urls, cookies_browser=None) -> list:
             except Exception as e:
                 print(f"  Could not list this profile: {e}", file=sys.stderr)
                 print(
-                    "  TikTok's profile listing is unreliable and often returns an\n"
-                    "  empty page even when logged in. Reliable fallback: paste the\n"
-                    "  individual video links instead (or a .txt file with one link\n"
-                    "  per line) — direct video downloads still work fine.",
+                    "  If automatic loading needs the browser engine, install it once:\n"
+                    "      pip install playwright && python -m playwright install chromium\n"
+                    "  Or paste the video links directly / load a .txt of links instead.",
                     file=sys.stderr,
                 )
                 continue

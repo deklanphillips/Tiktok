@@ -165,10 +165,24 @@ In the GUI, click **Settings → "Use cookies.txt…"** and pick the file.
 (Firefox does not use app-bound encryption, so `--cookies-from-browser firefox`
 is another reliable route.)
 
-**Profile listing returns empty no matter what — use the video links directly:**
+**Profile listing returns empty no matter what:**
 TikTok's profile-listing API is unreliable and often returns an empty page even
-when you're logged in, while downloading individual videos works fine. So skip
-the listing step and feed the video links straight in:
+when you're logged in. When that happens, the app **automatically falls back to
+loading the profile in a real (headless) browser**, scrolling it to the bottom,
+and scraping every video link — you don't need to do anything, just use the
+profile URL as normal. The first time this runs it downloads a browser engine
+once (a minute or two); after that it's quick.
+
+If automatic loading can't install the browser engine on its own, do it once:
+
+```bash
+pip install playwright
+python -m playwright install chromium
+```
+
+You can still paste the video links directly, or load a `.txt` of links —
+downloading individual videos always works, so this skips the listing step
+entirely:
 
 - **GUI:** on the Upload tab, paste several video links (comma/space/newline
   separated), or click **"Load links file…"** and pick a `.txt` with one link
