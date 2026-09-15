@@ -385,22 +385,57 @@ def upload_to_youtube(
 
 
 # --- Core job (shared by the CLI and the GUI) -------------------------------
+def collect_urls(raw_urls) -> list:
+    """Normalize whatever the user gave us into a flat list of URLs.
+
+    Accepts a single string or an iterable, and for each item:
+      * if it points at an existing text file, reads that file and uses each
+        non-blank, non-``#`` line as a URL (a "bulk links" file);
+      * otherwise splits the text on newlines/commas/whitespace, so pasting
+        many URLs at once works too.
+    Order is preserved and exact duplicates are dropped.
+    """
+    if isinstance(raw_urls, str):
+        raw_urls = [raw_urls]
+    tokens = []
+    for item in raw_urls or []:
+        if not item:
+            continue
+        s = str(item).strip()
+        path = os.path.expanduser(s)
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        tokens.append(line)
+        else:
+            tokens += [p for p in re.split(r"[\s,]+", s) if p]
+    seen, out = set(), []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
 def expand_urls(raw_urls, cookies_browser=None) -> list:
     """Expand any profile URLs in the list into their individual video URLs."""
     urls = []
-    for url in raw_urls:
+    for url in collect_urls(raw_urls):
         if is_profile_url(url):
             print(f"Fetching all videos from profile: {url}")
             try:
                 found = expand_profile(url, cookies_browser)
             except Exception as e:
                 print(f"  Could not list this profile: {e}", file=sys.stderr)
-                if not cookies_browser:
-                    print(
-                        "  TikTok often hides an account's video list from logged-out\n"
-                        "  requests. Try adding your browser cookies (chrome/edge/...).",
-                        file=sys.stderr,
-                    )
+                print(
+                    "  TikTok's profile listing is unreliable and often returns an\n"
+                    "  empty page even when logged in. Reliable fallback: paste the\n"
+                    "  individual video links instead (or a .txt file with one link\n"
+                    "  per line) — direct video downloads still work fine.",
+                    file=sys.stderr,
+                )
                 continue
             print(f"  found {len(found)} videos")
             urls += found

@@ -79,29 +79,37 @@ class App:
         form.pack(fill="x", padx=10, pady=8)
         form.columnconfigure(1, weight=1)
 
-        ttk.Label(form, text="TikTok profile or video URL:").grid(
+        ttk.Label(form, text="TikTok URL(s) or links file:").grid(
             row=0, column=0, sticky="w", pady=4
         )
         self.url_var = tk.StringVar(value=self.settings.get("profile", ""))
         ttk.Entry(form, textvariable=self.url_var).grid(
-            row=0, column=1, columnspan=3, sticky="ew", pady=4
+            row=0, column=1, columnspan=2, sticky="ew", pady=4
         )
+        ttk.Button(form, text="Load links file…", command=self.pick_links_file).grid(
+            row=0, column=3, sticky="w", pady=4, padx=(6, 0)
+        )
+        ttk.Label(
+            form,
+            text="One profile URL, or paste several video links, "
+            "or load a .txt with one link per line.",
+        ).grid(row=1, column=1, columnspan=3, sticky="w")
 
-        ttk.Label(form, text="How many now:").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Label(form, text="How many now:").grid(row=2, column=0, sticky="w", pady=4)
         self.limit_var = tk.StringVar(value=str(self.settings.get("daily_count", 6)))
         ttk.Spinbox(form, from_=1, to=100000, textvariable=self.limit_var, width=10).grid(
-            row=1, column=1, sticky="w", pady=4
+            row=2, column=1, sticky="w", pady=4
         )
 
         self.download_only_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             form, text="Download only (no YouTube)", variable=self.download_only_var
-        ).grid(row=1, column=2, columnspan=2, sticky="w", pady=4)
+        ).grid(row=2, column=2, columnspan=2, sticky="w", pady=4)
 
         self.force_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             form, text="Re-upload duplicates (ignore history)", variable=self.force_var
-        ).grid(row=2, column=1, columnspan=3, sticky="w", pady=4)
+        ).grid(row=3, column=1, columnspan=3, sticky="w", pady=4)
 
         btns = ttk.Frame(tab)
         btns.pack(fill="x", padx=10)
@@ -311,6 +319,14 @@ class App:
         )
         if path:
             self.set_cookies.set(path)
+
+    def pick_links_file(self):
+        path = filedialog.askopenfilename(
+            title="Select a .txt file of TikTok video links (one per line)",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if path:
+            self.url_var.set(path)
 
     def save_settings_clicked(self):
         self.settings = self._collect_settings()

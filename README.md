@@ -165,6 +165,23 @@ In the GUI, click **Settings → "Use cookies.txt…"** and pick the file.
 (Firefox does not use app-bound encryption, so `--cookies-from-browser firefox`
 is another reliable route.)
 
+**Profile listing returns empty no matter what — use the video links directly:**
+TikTok's profile-listing API is unreliable and often returns an empty page even
+when you're logged in, while downloading individual videos works fine. So skip
+the listing step and feed the video links straight in:
+
+- **GUI:** on the Upload tab, paste several video links (comma/space/newline
+  separated), or click **"Load links file…"** and pick a `.txt` with one link
+  per line.
+- **Command line:** pass multiple URLs, or a links file:
+
+```bash
+python tiktok_to_youtube.py links.txt          # a .txt, one URL per line
+python tiktok_to_youtube.py "URL1" "URL2" ...  # or list them directly
+```
+
+Everything else (dedupe, scheduling, Shorts) works exactly the same.
+
 ## Fully automatic daily uploads (free, ToS-friendly)
 
 Open the app → **Automation** tab:
