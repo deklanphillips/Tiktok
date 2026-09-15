@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import tiktok_to_youtube as engine
 
@@ -211,17 +211,21 @@ class App:
             row=3, column=1, sticky="w", pady=6
         )
 
-        ttk.Label(form, text="Browser cookies (if TikTok blocks listing):").grid(
+        ttk.Label(form, text="TikTok login (if it blocks listing):").grid(
             row=4, column=0, sticky="w", pady=6
         )
         self.set_cookies = tk.StringVar(value=self.settings.get("cookies_browser", ""))
+        crow = ttk.Frame(form)
+        crow.grid(row=4, column=1, sticky="w", pady=6)
         ttk.Combobox(
-            form,
+            crow,
             textvariable=self.set_cookies,
             values=["", "chrome", "edge", "firefox", "brave"],
-            state="readonly",
-            width=14,
-        ).grid(row=4, column=1, sticky="w", pady=6)
+            width=30,
+        ).pack(side="left")
+        ttk.Button(crow, text="Use cookies.txt…", command=self.pick_cookies_file).pack(
+            side="left", padx=6
+        )
 
         self.set_shorts = tk.BooleanVar(value=self.settings.get("as_short", True))
         ttk.Checkbutton(form, text="Upload as Shorts", variable=self.set_shorts).grid(
@@ -299,6 +303,14 @@ class App:
             "schedule_slots": slots or ["09:00", "14:00", "19:00"],
             "schedule_days": days or list(range(7)),
         }
+
+    def pick_cookies_file(self):
+        path = filedialog.askopenfilename(
+            title="Select your exported cookies.txt",
+            filetypes=[("Cookie files", "*.txt"), ("All files", "*.*")],
+        )
+        if path:
+            self.set_cookies.set(path)
 
     def save_settings_clicked(self):
         self.settings = self._collect_settings()

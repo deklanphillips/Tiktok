@@ -148,6 +148,23 @@ Replace `chrome` with `edge`, `firefox`, `brave`, etc. Close the browser first
 if it complains that the cookie database is locked. This flag also helps if
 individual video downloads get rejected.
 
+**Still empty, or "Failed to parse JSON" even with `--cookies-from-browser`:**
+Recent Chrome/Edge encrypt their cookie store ("app-bound encryption"), so
+live extraction silently reads *nothing* and TikTok sees an anonymous request.
+Use an exported **cookies.txt** instead — it always works:
+
+1. In your logged-in browser, install a "Get cookies.txt" extension (e.g.
+   *Get cookies.txt LOCALLY*), open `tiktok.com`, and export to a `cookies.txt`.
+2. Pass that file where a browser name would go — the app auto-detects a file:
+
+```bash
+python tiktok_to_youtube.py "https://www.tiktok.com/@you" --cookies-from-browser ./cookies.txt
+```
+
+In the GUI, click **Settings → "Use cookies.txt…"** and pick the file.
+(Firefox does not use app-bound encryption, so `--cookies-from-browser firefox`
+is another reliable route.)
+
 ## Fully automatic daily uploads (free, ToS-friendly)
 
 Open the app → **Automation** tab:

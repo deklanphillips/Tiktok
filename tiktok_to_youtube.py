@@ -168,14 +168,21 @@ def next_publish_time(slots, state, days=None):
 
 # --- Downloading ------------------------------------------------------------
 def _cookie_opts(cookies_browser):
-    """yt-dlp options for borrowing login cookies from a local browser.
+    """yt-dlp options for authenticating as your logged-in TikTok session.
 
-    TikTok often refuses to list/serve videos to anonymous requests; using the
-    cookies from a browser where you're logged in gets past that.
+    `cookies_browser` may be either a browser name (chrome/edge/firefox/brave/…)
+    to borrow live cookies from, OR a path to a cookies.txt file exported from
+    your browser. The file route is more reliable: recent Chrome/Edge encrypt
+    their cookie store (app-bound encryption) so live extraction silently
+    returns nothing, while an exported cookies.txt always works.
     """
-    if cookies_browser:
-        return {"cookiesfrombrowser": (cookies_browser, None, None, None)}
-    return {}
+    if not cookies_browser:
+        return {}
+    val = str(cookies_browser).strip()
+    path = os.path.expanduser(val)
+    if os.path.isfile(path):
+        return {"cookiefile": path}
+    return {"cookiesfrombrowser": (val, None, None, None)}
 
 
 def download_tiktok(url: str, cookies_browser=None) -> dict:
