@@ -111,6 +111,13 @@ class App:
             form, text="Re-upload duplicates (ignore history)", variable=self.force_var
         ).grid(row=3, column=1, columnspan=3, sticky="w", pady=4)
 
+        self.show_browser_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            form,
+            text="Show browser when loading a profile (only needed to solve a captcha)",
+            variable=self.show_browser_var,
+        ).grid(row=4, column=1, columnspan=3, sticky="w", pady=4)
+
         btns = ttk.Frame(tab)
         btns.pack(fill="x", padx=10)
         self.start_btn = ttk.Button(btns, text="Start upload", command=self.on_start)
@@ -403,7 +410,7 @@ class App:
             force=self.force_var.get(),
             schedule_slots=slots,
             schedule_days=days,
-            scrape_visible=True,  # manual runs: show the browser so captchas can be solved
+            scrape_visible=self.show_browser_var.get(),
             should_stop=lambda: self.stop_flag,
         )
 
