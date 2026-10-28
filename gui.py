@@ -241,14 +241,22 @@ class App:
         ttk.Button(crow, text="Use cookies.txt…", command=self.pick_cookies_file).pack(
             side="left", padx=6
         )
+        ttk.Button(crow, text="Log in to TikTok", command=self.login_tiktok).pack(
+            side="left", padx=6
+        )
+
+        ttk.Label(form, text="YouTube account:").grid(row=5, column=0, sticky="w", pady=6)
+        ttk.Button(
+            form, text="Sign in to YouTube again", command=self.reauth_youtube
+        ).grid(row=5, column=1, sticky="w", pady=6)
 
         self.set_shorts = tk.BooleanVar(value=self.settings.get("as_short", True))
         ttk.Checkbutton(form, text="Upload as Shorts", variable=self.set_shorts).grid(
-            row=5, column=1, sticky="w", pady=6
+            row=6, column=1, sticky="w", pady=6
         )
 
         ttk.Separator(form, orient="horizontal").grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=10
+            row=7, column=0, columnspan=2, sticky="ew", pady=10
         )
 
         self.set_schedule = tk.BooleanVar(value=self.settings.get("schedule_publish", False))
@@ -256,27 +264,27 @@ class App:
             form,
             text="Auto-publish uploads on a schedule (YouTube makes them public for you)",
             variable=self.set_schedule,
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=6)
 
         ttk.Label(form, text="Publish times each day:").grid(
-            row=8, column=0, sticky="w", pady=6
+            row=9, column=0, sticky="w", pady=6
         )
         slots = self.settings.get("schedule_slots", ["09:00", "14:00", "19:00"])
         slots = (slots + ["", "", ""])[:3]
         srow = ttk.Frame(form)
-        srow.grid(row=8, column=1, sticky="w", pady=6)
+        srow.grid(row=9, column=1, sticky="w", pady=6)
         self.set_slot1 = tk.StringVar(value=slots[0])
         self.set_slot2 = tk.StringVar(value=slots[1])
         self.set_slot3 = tk.StringVar(value=slots[2])
         for var in (self.set_slot1, self.set_slot2, self.set_slot3):
             ttk.Entry(srow, textvariable=var, width=8).pack(side="left", padx=(0, 8))
         ttk.Label(form, text="(24-hour, e.g. 09:00, 14:00, 19:00)").grid(
-            row=9, column=1, sticky="w"
+            row=10, column=1, sticky="w"
         )
 
-        ttk.Label(form, text="On these days:").grid(row=10, column=0, sticky="w", pady=6)
+        ttk.Label(form, text="On these days:").grid(row=11, column=0, sticky="w", pady=6)
         drow = ttk.Frame(form)
-        drow.grid(row=10, column=1, sticky="w", pady=6)
+        drow.grid(row=11, column=1, sticky="w", pady=6)
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         active_days = set(self.settings.get("schedule_days", list(range(7))))
         self.day_vars = []
@@ -326,6 +334,56 @@ class App:
         )
         if path:
             self.set_cookies.set(path)
+
+    def login_tiktok(self):
+        """Open a browser, let the user log into TikTok, save the cookies, and
+        wire them into Settings."""
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("Busy", "Finish the current run first.")
+            return
+        out = os.path.join(HERE, "tiktok_cookies.txt")
+
+        def job():
+            old = sys.stdout, sys.stderr
+            sys.stdout = sys.stderr = _QueueWriter(self.log_queue)
+            try:
+                engine.capture_tiktok_login(out)
+                self.set_cookies.set(out)
+                self.save_settings_clicked()
+            except Exception as e:
+                print(f"\nERROR: {e}")
+            finally:
+                sys.stdout, sys.stderr = old
+
+        self._append(self.log, "\nOpening TikTok login... watch for the browser window.\n")
+        self.worker = threading.Thread(target=job, daemon=True)
+        self.worker.start()
+
+    def reauth_youtube(self):
+        """Forget the saved YouTube login and sign in fresh."""
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("Busy", "Finish the current run first.")
+            return
+        try:
+            if os.path.exists(engine.TOKEN_FILE):
+                os.remove(engine.TOKEN_FILE)
+        except OSError:
+            pass
+
+        def job():
+            old = sys.stdout, sys.stderr
+            sys.stdout = sys.stderr = _QueueWriter(self.log_queue)
+            try:
+                engine.get_youtube_service()
+                print("\nSigned in to YouTube. You're ready to upload.")
+            except Exception as e:
+                print(f"\nERROR: {e}")
+            finally:
+                sys.stdout, sys.stderr = old
+
+        self._append(self.log, "\nA browser will open to sign in to YouTube...\n")
+        self.worker = threading.Thread(target=job, daemon=True)
+        self.worker.start()
 
     def pick_links_file(self):
         path = filedialog.askopenfilename(

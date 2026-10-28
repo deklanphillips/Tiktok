@@ -274,21 +274,13 @@ def _launch_chromium(p, headful=False):
         return p.chromium.launch(headless=headless)
 
 
-def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -> list:
-    """Load a TikTok profile in a real browser, scroll to the bottom so every
-    video loads, and return all the video URLs.
-
-    This is the reliable fallback for when TikTok's listing API returns an empty
-    page: a real browser runs TikTok's own JavaScript, so the videos actually
-    appear and can be scraped. With `headful=True` the window is visible, so if
-    TikTok shows a captcha / "verify you're human" wall you can solve it by hand
-    and loading continues.
-    """
+def _ensure_playwright(log=print):
+    """Import Playwright, installing it on first use so no terminal is needed."""
     try:
         from playwright.sync_api import sync_playwright
+
+        return sync_playwright
     except ImportError:
-        # Not installed yet — try to install it ourselves so the user doesn't
-        # have to touch a terminal.
         import importlib
         import subprocess
 
@@ -299,13 +291,93 @@ def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -
             )
             importlib.invalidate_caches()
             from playwright.sync_api import sync_playwright
+
+            return sync_playwright
         except Exception:
             raise RuntimeError(
                 "Couldn't auto-install Playwright. Install it once in a terminal:\n"
                 "    pip install playwright\n"
-                "    python -m playwright install chromium\n"
-                "...or just paste the video links / load a .txt of links instead."
+                "    python -m playwright install chromium"
             )
+
+
+def _write_netscape_cookies(cookies, path):
+    """Write Playwright cookie dicts out as a Netscape cookies.txt file."""
+    lines = ["# Netscape HTTP Cookie File", ""]
+    for c in cookies:
+        domain = c.get("domain", "")
+        flag = "TRUE" if domain.startswith(".") else "FALSE"
+        cpath = c.get("path", "/") or "/"
+        secure = "TRUE" if c.get("secure") else "FALSE"
+        expires = int(c.get("expires") or 0)
+        if expires < 0:
+            expires = 0
+        lines.append(
+            "\t".join(
+                [domain, flag, cpath, secure, str(expires), c.get("name", ""), c.get("value", "")]
+            )
+        )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def capture_tiktok_login(out_path, log=print, timeout_sec=300):
+    """Open a visible browser to TikTok, wait for the user to log in, then save
+    the session cookies to `out_path` (Netscape cookies.txt). Returns out_path."""
+    import time as _time
+
+    sync_playwright = _ensure_playwright(log)
+    with sync_playwright() as p:
+        browser = _launch_chromium(p, headful=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        )
+        page = context.new_page()
+        page.goto("https://www.tiktok.com/login", wait_until="domcontentloaded", timeout=60000)
+        log(
+            "  A browser window opened. Log into TikTok there.\n"
+            "  As soon as you're signed in, your login is saved automatically."
+        )
+        deadline = _time.time() + timeout_sec
+        logged_in = False
+        while _time.time() < deadline:
+            try:
+                cookies = context.cookies()
+            except Exception:
+                cookies = []
+            if any(c.get("name") == "sessionid" and c.get("value") for c in cookies):
+                logged_in = True
+                break
+            page.wait_for_timeout(2000)
+        try:
+            cookies = context.cookies()
+        except Exception:
+            cookies = []
+        browser.close()
+
+    _write_netscape_cookies(cookies, out_path)
+    if logged_in:
+        log(f"  Logged in — saved your TikTok session to {os.path.basename(out_path)}.")
+    else:
+        log("  Didn't detect a completed login in time; saved whatever was there.")
+    return out_path
+
+
+def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -> list:
+    """Load a TikTok profile in a real browser, scroll to the bottom so every
+    video loads, and return all the video URLs.
+
+    This is the reliable fallback for when TikTok's listing API returns an empty
+    page: a real browser runs TikTok's own JavaScript, so the videos actually
+    appear and can be scraped. With `headful=True` the window is visible, so if
+    TikTok shows a captcha / "verify you're human" wall you can solve it by hand
+    and loading continues.
+    """
+    sync_playwright = _ensure_playwright(log)
 
     seen, links = set(), []
     with sync_playwright() as p:
