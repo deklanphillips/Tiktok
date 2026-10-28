@@ -403,6 +403,7 @@ class App:
             force=self.force_var.get(),
             schedule_slots=slots,
             schedule_days=days,
+            scrape_visible=True,  # manual runs: show the browser so captchas can be solved
             should_stop=lambda: self.stop_flag,
         )
 

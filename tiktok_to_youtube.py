@@ -259,10 +259,11 @@ def _load_netscape_cookies(path):
     return cookies
 
 
-def _launch_chromium(p):
-    """Launch headless Chromium, downloading the browser once if it's missing."""
+def _launch_chromium(p, headful=False):
+    """Launch Chromium, downloading the browser once if it's missing."""
+    headless = not headful
     try:
-        return p.chromium.launch(headless=True)
+        return p.chromium.launch(headless=headless)
     except Exception:
         import subprocess
 
@@ -270,16 +271,18 @@ def _launch_chromium(p):
         subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"], check=False
         )
-        return p.chromium.launch(headless=True)
+        return p.chromium.launch(headless=headless)
 
 
-def scrape_profile_videos(url, cookies_browser=None, log=print) -> list:
-    """Load a TikTok profile in a real (headless) browser, scroll to the bottom
-    so every video loads, and return all the video URLs.
+def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -> list:
+    """Load a TikTok profile in a real browser, scroll to the bottom so every
+    video loads, and return all the video URLs.
 
     This is the reliable fallback for when TikTok's listing API returns an empty
     page: a real browser runs TikTok's own JavaScript, so the videos actually
-    appear and can be scraped.
+    appear and can be scraped. With `headful=True` the window is visible, so if
+    TikTok shows a captcha / "verify you're human" wall you can solve it by hand
+    and loading continues.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -306,7 +309,7 @@ def scrape_profile_videos(url, cookies_browser=None, log=print) -> list:
 
     seen, links = set(), []
     with sync_playwright() as p:
-        browser = _launch_chromium(p)
+        browser = _launch_chromium(p, headful=headful)
         context = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -325,6 +328,20 @@ def scrape_profile_videos(url, cookies_browser=None, log=print) -> list:
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
+
+        if headful:
+            log(
+                "  A browser window opened. If TikTok shows a captcha or a login\n"
+                "  prompt, solve it in that window — loading continues automatically.\n"
+                "  (You have about a minute.)"
+            )
+            # Give the user time to clear any human-check before we scrape.
+            for _ in range(30):
+                if page.eval_on_selector_all(
+                    'a[href*="/video/"]', "els => els.length"
+                ):
+                    break
+                page.wait_for_timeout(2000)
 
         idle = 0
         for _ in range(600):  # safety bound
@@ -378,7 +395,7 @@ def _expand_profile_ytdlp(url: str, cookies_browser=None) -> list:
     return urls
 
 
-def expand_profile(url: str, cookies_browser=None, log=print) -> list:
+def expand_profile(url: str, cookies_browser=None, log=print, scrape_visible=False) -> list:
     """Return every video URL on a TikTok account.
 
     Tries yt-dlp's fast API listing first; if TikTok returns nothing (its
@@ -392,7 +409,9 @@ def expand_profile(url: str, cookies_browser=None, log=print) -> list:
         log(f"  Fast listing failed ({e}).")
     if not urls:
         log("  Listing came back empty — loading the profile in a browser instead...")
-        urls = scrape_profile_videos(url, cookies_browser, log=log)
+        urls = scrape_profile_videos(
+            url, cookies_browser, log=log, headful=scrape_visible
+        )
     return urls
 
 
@@ -561,14 +580,16 @@ def collect_urls(raw_urls) -> list:
     return out
 
 
-def expand_urls(raw_urls, cookies_browser=None) -> list:
+def expand_urls(raw_urls, cookies_browser=None, scrape_visible=False) -> list:
     """Expand any profile URLs in the list into their individual video URLs."""
     urls = []
     for url in collect_urls(raw_urls):
         if is_profile_url(url):
             print(f"Fetching all videos from profile: {url}")
             try:
-                found = expand_profile(url, cookies_browser)
+                found = expand_profile(
+                    url, cookies_browser, scrape_visible=scrape_visible
+                )
             except Exception as e:
                 print(f"  Could not list this profile: {e}", file=sys.stderr)
                 print(
@@ -598,6 +619,7 @@ def run_job(
     force=False,
     schedule_slots=None,
     schedule_days=None,
+    scrape_visible=False,
     should_stop=None,
 ):
     """Download and upload a batch of TikToks. Prints progress via print().
@@ -606,10 +628,12 @@ def run_job(
     `force` is True), so re-runs never create duplicates. If `schedule_slots`
     (a list like ["09:00","14:00","19:00"]) is given, each upload is set to
     auto-publish at the next free slot instead of staying private;
-    `schedule_days` limits which weekdays get slots (Mon=0..Sun=6). `should_stop`
-    is an optional callable returning True to abort early (GUI Stop button).
+    `schedule_days` limits which weekdays get slots (Mon=0..Sun=6).
+    `scrape_visible` shows the browser window during a profile scrape so the
+    user can solve a captcha. `should_stop` is an optional callable returning
+    True to abort early (GUI Stop button).
     """
-    urls = expand_urls(raw_urls, cookies_browser)
+    urls = expand_urls(raw_urls, cookies_browser, scrape_visible=scrape_visible)
 
     uploaded = load_uploaded()
     if not force and uploaded:
