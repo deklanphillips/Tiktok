@@ -284,11 +284,25 @@ def scrape_profile_videos(url, cookies_browser=None, log=print) -> list:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise RuntimeError(
-            "Automatic profile loading needs Playwright. Install it once:\n"
-            "    pip install playwright\n"
-            "    python -m playwright install chromium"
-        )
+        # Not installed yet — try to install it ourselves so the user doesn't
+        # have to touch a terminal.
+        import importlib
+        import subprocess
+
+        log("  First time: installing the browser tool (one-time, ~1-2 min)...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "playwright"], check=True
+            )
+            importlib.invalidate_caches()
+            from playwright.sync_api import sync_playwright
+        except Exception:
+            raise RuntimeError(
+                "Couldn't auto-install Playwright. Install it once in a terminal:\n"
+                "    pip install playwright\n"
+                "    python -m playwright install chromium\n"
+                "...or just paste the video links / load a .txt of links instead."
+            )
 
     seen, links = set(), []
     with sync_playwright() as p:
