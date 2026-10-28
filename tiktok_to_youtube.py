@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+import time
 
 import yt_dlp
 
@@ -618,10 +619,13 @@ def run_job(
     youtube = None if download_only else get_youtube_service()
     schedule_state = load_schedule() if schedule_slots else None
 
+    consecutive_fails = 0
     for i, url in enumerate(urls, 1):
         if should_stop and should_stop():
             print("\nStopped by user.")
             return
+        if i > 1:
+            time.sleep(2)  # be gentle so TikTok doesn't rate-limit us
         print(f"\n[{i}/{len(urls)}] {url}")
         try:
             video = download_tiktok(url, cookies_browser)
@@ -629,6 +633,7 @@ def run_job(
             print(f"    title: {video['title']}")
 
             if download_only:
+                consecutive_fails = 0
                 continue
 
             publish_at = None
@@ -659,6 +664,7 @@ def run_job(
             if key:
                 uploaded[key] = video_id
                 save_uploaded(uploaded)
+            consecutive_fails = 0
         except Exception as e:
             msg = str(e)
             print(f"    ERROR: {msg}", file=sys.stderr)
@@ -668,6 +674,20 @@ def run_job(
                     "\nYouTube's daily upload quota is used up for today. Stopping.\n"
                     "The remaining videos were not touched — just run again after it "
                     "resets (midnight Pacific Time) and it'll continue from here."
+                )
+                break
+            # A wall of download failures usually means TikTok is rate-limiting
+            # this IP, or yt-dlp is out of date — stop instead of grinding on.
+            consecutive_fails += 1
+            if consecutive_fails >= 5:
+                print(
+                    "\nStopping: several videos in a row failed to download.\n"
+                    "This almost always means TikTok is temporarily blocking this\n"
+                    "network (too many requests), or yt-dlp needs updating. Try:\n"
+                    "  1) wait a few hours (or switch networks) and run again,\n"
+                    "  2) update yt-dlp:  pip install -U yt-dlp\n"
+                    "  3) set your cookies.txt in Settings.\n"
+                    "Already-uploaded videos are saved, so it'll resume where it left off."
                 )
                 break
 
