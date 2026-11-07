@@ -745,6 +745,203 @@ def expand_urls(raw_urls, cookies_browser=None, scrape_visible=False, use_real_c
     return urls
 
 
+def _fetch_video_bytes(context, play_url):
+    """Download the video bytes inside the real Chrome session (Chrome's own
+    network stack + cookies + Referer), falling back to Playwright's request."""
+    try:
+        pg = context.new_page()
+        try:
+            r = pg.goto(play_url, timeout=90000)
+            if r and r.ok:
+                body = r.body()
+                if body:
+                    return body
+        finally:
+            pg.close()
+    except Exception:
+        pass
+    resp = context.request.get(play_url, headers={"referer": "https://www.tiktok.com/"})
+    if resp.ok:
+        return resp.body()
+    raise RuntimeError(f"download failed (HTTP {resp.status})")
+
+
+def run_real_chrome(
+    raw_urls,
+    *,
+    privacy="private",
+    as_short=True,
+    hashtags=None,
+    limit=None,
+    skip=0,
+    force=False,
+    schedule_slots=None,
+    schedule_days=None,
+    should_stop=None,
+):
+    """Do the whole TikTok side inside the user's real Chrome (dedicated
+    persistent profile): list the profile AND download each video through the
+    browser, then upload to YouTube — so TikTok's block on yt-dlp doesn't apply.
+    """
+    sync_playwright = _ensure_playwright()
+    uploaded = load_uploaded()
+    schedule_state = load_schedule() if schedule_slots else None
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+    with sync_playwright() as p:
+        prof = _dedicated_chrome_profile_dir()
+        os.makedirs(prof, exist_ok=True)
+        print(f"  Opening Chrome with its own profile ({prof}).")
+        print("  If it's not logged into TikTok, log in now (remembered next time).")
+        try:
+            context = p.chromium.launch_persistent_context(
+                prof, channel="chrome", headless=False, no_viewport=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+        except Exception as e:
+            raise RuntimeError(
+                "Couldn't launch Google Chrome. Make sure Chrome is installed.\n" + str(e)
+            )
+        context.set_extra_http_headers({"referer": "https://www.tiktok.com/"})
+
+        # 1) Collect video URLs (expand any profile URLs by scrolling).
+        all_urls = []
+        for src in collect_urls(raw_urls):
+            if not is_profile_url(src):
+                all_urls.append(src)
+                continue
+            print(f"Fetching all videos from profile: {src}")
+            page = context.new_page()
+            page.goto(src, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(3000)
+            print("  (log in / solve a captcha in the window if shown — up to ~4 min)")
+            for _ in range(120):
+                if page.eval_on_selector_all('a[href*="/video/"]', "e=>e.length"):
+                    break
+                page.wait_for_timeout(2000)
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+            seen, idle = set(), 0
+            while idle < 10:
+                if should_stop and should_stop():
+                    break
+                hrefs = page.eval_on_selector_all(
+                    'a[href*="/video/"]', "e=>e.map(x=>x.href)"
+                )
+                new = 0
+                for h in hrefs:
+                    m = re.search(r"/video/(\d+)", h)
+                    if m and m.group(1) not in seen:
+                        seen.add(m.group(1))
+                        all_urls.append(h.split("?")[0])
+                        new += 1
+                if new:
+                    print(f"  ...loaded {len(all_urls)} videos so far")
+                    idle = 0
+                else:
+                    idle += 1
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                except Exception:
+                    pass
+                page.wait_for_timeout(2500)
+            page.close()
+
+        # 2) Skip already-uploaded, save the remaining list, apply skip/limit.
+        if not force and uploaded:
+            before = len(all_urls)
+            all_urls = [u for u in all_urls if extract_tiktok_id(u) not in uploaded]
+            if before - len(all_urls):
+                print(f"Skipping {before - len(all_urls)} video(s) already uploaded previously.")
+        if all_urls:
+            try:
+                with open("video_links.txt", "w", encoding="utf-8") as f:
+                    f.write("\n".join(all_urls) + "\n")
+            except OSError:
+                pass
+        if skip:
+            all_urls = all_urls[skip:]
+        if limit is not None:
+            all_urls = all_urls[:limit]
+        if not all_urls:
+            print("Nothing new to process.")
+            context.close()
+            return
+
+        print(f"\nProcessing {len(all_urls)} video(s).")
+        youtube = get_youtube_service()
+
+        # 3) Download each through the browser, then upload to YouTube.
+        for i, url in enumerate(all_urls, 1):
+            if should_stop and should_stop():
+                print("\nStopped by user.")
+                break
+            print(f"\n[{i}/{len(all_urls)}] {url}")
+            try:
+                vp = context.new_page()
+                vp.goto(url, wait_until="domcontentloaded", timeout=60000)
+                vp.wait_for_timeout(1500)
+                info = vp.evaluate(
+                    r"""() => {
+                      try {
+                        const el = document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__');
+                        const j = JSON.parse(el.textContent);
+                        const d = (j['__DEFAULT_SCOPE__']||{})['webapp.video-detail']||{};
+                        const it = (d.itemInfo||{}).itemStruct||{};
+                        const v = it.video||{};
+                        let play = v.playAddr || v.downloadAddr || '';
+                        if (!play && v.bitrateInfo && v.bitrateInfo[0]) {
+                          const pa = v.bitrateInfo[0].PlayAddr || {};
+                          const ul = pa.UrlList || [];
+                          play = ul[ul.length-1] || '';
+                        }
+                        return {id: it.id||'', desc: it.desc||'', play};
+                      } catch(e){ return {error: String(e)}; }
+                    }"""
+                )
+                vp.close()
+                play = (info or {}).get("play")
+                if not play:
+                    raise RuntimeError("couldn't find the video URL on the page")
+                body = _fetch_video_bytes(context, play)
+                vid_id = str((info.get("id") or extract_tiktok_id(url) or f"vid{i}"))
+                fp = os.path.join(DOWNLOAD_DIR, f"{vid_id}.mp4")
+                with open(fp, "wb") as f:
+                    f.write(body)
+                caption = (info.get("desc") or "").strip()
+                print(f"    downloaded: {os.path.basename(fp)} ({len(body)//1024} KB)")
+
+                video = {
+                    "id": vid_id, "filepath": fp,
+                    "title": caption or "TikTok video", "description": caption,
+                }
+                publish_at = None
+                if schedule_slots:
+                    local_dt, publish_at = next_publish_time(
+                        schedule_slots, schedule_state, schedule_days
+                    )
+                vid = upload_to_youtube(
+                    youtube, video, as_short=as_short, privacy=privacy,
+                    hashtags=hashtags, publish_at=publish_at,
+                )
+                if publish_at:
+                    save_schedule(schedule_state)
+                    print(
+                        f"    uploaded: https://youtube.com/watch?v={vid} — "
+                        f"goes live {local_dt:%a %b %d %I:%M %p}"
+                    )
+                else:
+                    print(f"    uploaded: https://youtube.com/watch?v={vid} ({privacy})")
+                uploaded[vid_id] = vid
+                save_uploaded(uploaded)
+            except Exception as e:
+                print(f"    ERROR: {e}", file=sys.stderr)
+        context.close()
+    print("\nDone.")
+
+
 def run_job(
     raw_urls,
     *,
@@ -773,6 +970,14 @@ def run_job(
     user can solve a captcha. `should_stop` is an optional callable returning
     True to abort early (GUI Stop button).
     """
+    # Real-Chrome mode does listing AND downloading in the browser.
+    if use_real_chrome and not download_only:
+        return run_real_chrome(
+            raw_urls, privacy=privacy, as_short=as_short, hashtags=hashtags,
+            limit=limit, skip=skip, force=force, schedule_slots=schedule_slots,
+            schedule_days=schedule_days, should_stop=should_stop,
+        )
+
     urls = expand_urls(
         raw_urls, cookies_browser, scrape_visible=scrape_visible,
         use_real_chrome=use_real_chrome,
