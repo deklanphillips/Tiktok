@@ -415,8 +415,19 @@ def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -
                     break
                 page.wait_for_timeout(2000)
 
+        # Dismiss any cookie/login modal that can sit over the grid and block
+        # scrolling, then wait for the video grid to actually render.
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        try:
+            page.wait_for_selector('a[href*="/video/"]', timeout=20000)
+        except Exception:
+            pass
+
         idle = 0
-        for _ in range(600):  # safety bound
+        for _ in range(800):  # safety bound
             hrefs = page.eval_on_selector_all(
                 'a[href*="/video/"]', "els => els.map(e => e.href)"
             )
@@ -432,10 +443,20 @@ def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -
                 idle = 0
             else:
                 idle += 1
-            if idle >= 6:  # nothing new after several scrolls -> reached the end
+            if idle >= 10:  # nothing new after many scrolls -> reached the end
                 break
+            # Scroll the page itself to the bottom to trigger lazy-loading
+            # (mouse-wheel alone often doesn't move TikTok's grid).
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            except Exception:
+                pass
+            try:
+                page.keyboard.press("End")
+            except Exception:
+                pass
             page.mouse.wheel(0, 24000)
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(2500)
         browser.close()
     return links
 
