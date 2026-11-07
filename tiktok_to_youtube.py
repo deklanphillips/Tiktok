@@ -786,6 +786,16 @@ def run_job(
         if already:
             print(f"Skipping {already} video(s) already uploaded previously.")
 
+    # Save the not-yet-done links to a file, so even if downloads are blocked you
+    # have the exact list to bulk-download in your browser.
+    if urls:
+        try:
+            with open("video_links.txt", "w", encoding="utf-8") as f:
+                f.write("\n".join(urls) + "\n")
+            print(f"Saved {len(urls)} remaining link(s) to video_links.txt")
+        except OSError:
+            pass
+
     # skip/limit apply to what's LEFT, so "do 6" means 6 *new* videos.
     if skip:
         urls = urls[skip:]

@@ -27,3 +27,6 @@ env/
 
 # OS
 .DS_Store
+
+# Exported remaining links
+video_links.txt
