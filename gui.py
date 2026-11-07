@@ -52,6 +52,7 @@ class App:
         root.title("TikTok → YouTube Uploader")
         root.geometry("760x660")
         root.minsize(680, 560)
+        self._apply_dark_theme()
 
         bar = ttk.Frame(root)
         bar.pack(fill="x", padx=8, pady=(8, 0))
@@ -69,6 +70,46 @@ class App:
 
         self.root.after(100, self._drain_log)
         self.refresh_task_status()
+
+    # -------------------------------------------------------------- dark theme
+    def _apply_dark_theme(self):
+        BG, FG, FIELD, HILITE = "#0f0f10", "#e8e8e8", "#1c1c1f", "#2d6cdf"
+        self.colors = (BG, FG, FIELD)
+        self.root.configure(bg=BG)
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure(".", background=BG, foreground=FG, fieldbackground=FIELD,
+                        bordercolor="#333", lightcolor=FIELD, darkcolor=FIELD,
+                        insertcolor=FG, arrowcolor=FG)
+        style.configure("TFrame", background=BG)
+        style.configure("TLabelframe", background=BG, foreground=FG)
+        style.configure("TLabelframe.Label", background=BG, foreground=FG)
+        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TButton", background=FIELD, foreground=FG, borderwidth=1)
+        style.map("TButton", background=[("active", "#2a2a2e"), ("pressed", "#2a2a2e")])
+        style.configure("TCheckbutton", background=BG, foreground=FG)
+        style.map("TCheckbutton", background=[("active", BG)])
+        style.configure("TEntry", fieldbackground=FIELD, foreground=FG)
+        style.configure("TSpinbox", fieldbackground=FIELD, foreground=FG, arrowcolor=FG)
+        style.configure("TCombobox", fieldbackground=FIELD, foreground=FG, arrowcolor=FG)
+        style.map("TCombobox", fieldbackground=[("readonly", FIELD)],
+                  foreground=[("readonly", FG)])
+        style.configure("TNotebook", background=BG, bordercolor="#333")
+        style.configure("TNotebook.Tab", background=FIELD, foreground=FG, padding=(12, 6))
+        style.map("TNotebook.Tab",
+                  background=[("selected", BG)], foreground=[("selected", HILITE)])
+
+    def _style_text(self, widget):
+        BG, FG, FIELD = self.colors
+        try:
+            widget.configure(bg="#0a0a0b", fg=FG, insertbackground=FG,
+                             highlightbackground="#333", highlightcolor="#333",
+                             borderwidth=0)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ UPLOAD
     def _build_upload_tab(self, nb):
@@ -111,20 +152,6 @@ class App:
             form, text="Re-upload duplicates (ignore history)", variable=self.force_var
         ).grid(row=3, column=1, columnspan=3, sticky="w", pady=4)
 
-        self.show_browser_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            form,
-            text="Show browser when loading a profile (only needed to solve a captcha)",
-            variable=self.show_browser_var,
-        ).grid(row=4, column=1, columnspan=3, sticky="w", pady=4)
-
-        self.real_chrome_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            form,
-            text="Use my real Chrome to load the profile (log in once when it opens)",
-            variable=self.real_chrome_var,
-        ).grid(row=5, column=1, columnspan=3, sticky="w", pady=4)
-
         btns = ttk.Frame(tab)
         btns.pack(fill="x", padx=10)
         self.start_btn = ttk.Button(btns, text="Start upload", command=self.on_start)
@@ -138,6 +165,7 @@ class App:
         ttk.Label(tab, text="Progress:").pack(anchor="w", padx=10, pady=(8, 0))
         self.log = scrolledtext.ScrolledText(tab, height=16, state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._style_text(self.log)
 
     # -------------------------------------------------------------- AUTOMATION
     def _build_automation_tab(self, nb):
@@ -195,6 +223,7 @@ class App:
             tab, height=12, state="disabled", wrap="word"
         )
         self.daily_log.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+        self._style_text(self.daily_log)
         self.load_daily_log()
 
     # ---------------------------------------------------------------- SETTINGS
@@ -269,45 +298,30 @@ class App:
             row=7, column=0, columnspan=2, sticky="ew", pady=10
         )
 
+        # Scheduling lives in a popup to keep this screen clean. The variables
+        # exist here so settings load/save works whether or not the popup opens.
         self.set_schedule = tk.BooleanVar(value=self.settings.get("schedule_publish", False))
-        ttk.Checkbutton(
-            form,
-            text="Auto-publish uploads on a schedule (YouTube makes them public for you)",
-            variable=self.set_schedule,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=6)
-
-        ttk.Label(form, text="Publish times each day:").grid(
-            row=9, column=0, sticky="w", pady=6
-        )
-        slots = self.settings.get("schedule_slots", ["09:00", "14:00", "19:00"])
-        slots = (slots + ["", "", ""])[:3]
-        srow = ttk.Frame(form)
-        srow.grid(row=9, column=1, sticky="w", pady=6)
+        slots = (self.settings.get("schedule_slots", ["09:00", "14:00", "19:00"]) + ["", "", ""])[:3]
         self.set_slot1 = tk.StringVar(value=slots[0])
         self.set_slot2 = tk.StringVar(value=slots[1])
         self.set_slot3 = tk.StringVar(value=slots[2])
-        for var in (self.set_slot1, self.set_slot2, self.set_slot3):
-            ttk.Entry(srow, textvariable=var, width=8).pack(side="left", padx=(0, 8))
-        ttk.Label(form, text="(24-hour, e.g. 09:00, 14:00, 19:00)").grid(
-            row=10, column=1, sticky="w"
-        )
-
-        ttk.Label(form, text="On these days:").grid(row=11, column=0, sticky="w", pady=6)
-        drow = ttk.Frame(form)
-        drow.grid(row=11, column=1, sticky="w", pady=6)
-        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         active_days = set(self.settings.get("schedule_days", list(range(7))))
-        self.day_vars = []
-        for idx, name in enumerate(day_names):
-            var = tk.BooleanVar(value=idx in active_days)
-            self.day_vars.append(var)
-            ttk.Checkbutton(drow, text=name, variable=var).pack(side="left")
+        self.day_vars = [tk.BooleanVar(value=i in active_days) for i in range(7)]
+
+        ttk.Button(form, text="Schedule…", command=self.open_schedule_dialog).grid(
+            row=8, column=0, sticky="w", pady=6
+        )
+        self.sched_summary = tk.StringVar()
+        self._refresh_sched_summary()
+        ttk.Label(form, textvariable=self.sched_summary).grid(
+            row=8, column=1, sticky="w", pady=6
+        )
 
         ttk.Button(tab, text="Save settings", command=self.save_settings_clicked).pack(
             anchor="w", padx=12
         )
         self.save_note = tk.StringVar(value="")
-        ttk.Label(tab, textvariable=self.save_note, foreground="green").pack(
+        ttk.Label(tab, textvariable=self.save_note, foreground="#5fbf5f").pack(
             anchor="w", padx=12, pady=6
         )
 
@@ -355,6 +369,58 @@ class App:
         )
         if path:
             self.set_cookies.set(path)
+
+    def _refresh_sched_summary(self):
+        if self.set_schedule.get():
+            times = ", ".join(v.get() for v in (self.set_slot1, self.set_slot2, self.set_slot3) if v.get())
+            names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            days = ", ".join(names[i] for i, v in enumerate(self.day_vars) if v.get())
+            self.sched_summary.set(f"On · {times or '—'} · {days or '—'}")
+        else:
+            self.sched_summary.set("Off — uploads stay private for you to publish")
+
+    def open_schedule_dialog(self):
+        """Popup for auto-publish scheduling (kept out of the main screen)."""
+        BG, FG, FIELD = self.colors
+        win = tk.Toplevel(self.root)
+        win.title("Auto-publish schedule")
+        win.configure(bg=BG)
+        win.transient(self.root)
+        win.resizable(False, False)
+        frm = ttk.Frame(win)
+        frm.pack(fill="both", expand=True, padx=14, pady=12)
+
+        ttk.Checkbutton(
+            frm,
+            text="Auto-publish uploads on a schedule (YouTube makes them public for you)",
+            variable=self.set_schedule,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        ttk.Label(frm, text="Publish times each day:").grid(row=1, column=0, sticky="w", pady=4)
+        srow = ttk.Frame(frm)
+        srow.grid(row=1, column=1, sticky="w", pady=4)
+        for var in (self.set_slot1, self.set_slot2, self.set_slot3):
+            ttk.Entry(srow, textvariable=var, width=8).pack(side="left", padx=(0, 8))
+        ttk.Label(frm, text="(24-hour, e.g. 09:00, 14:00, 19:00)").grid(
+            row=2, column=1, sticky="w"
+        )
+
+        ttk.Label(frm, text="On these days:").grid(row=3, column=0, sticky="w", pady=(10, 4))
+        drow = ttk.Frame(frm)
+        drow.grid(row=3, column=1, sticky="w", pady=(10, 4))
+        names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for i, name in enumerate(names):
+            ttk.Checkbutton(drow, text=name, variable=self.day_vars[i]).pack(side="left")
+
+        def done():
+            self.save_settings_clicked()
+            self._refresh_sched_summary()
+            win.destroy()
+
+        ttk.Button(frm, text="Save & close", command=done).grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(14, 0)
+        )
+        win.grab_set()
 
     def install_ytdlp(self):
         """Reinstall yt-dlp at a chosen version (blank = newest), then relaunch."""
@@ -530,8 +596,8 @@ class App:
             force=self.force_var.get(),
             schedule_slots=slots,
             schedule_days=days,
-            scrape_visible=self.show_browser_var.get(),
-            use_real_chrome=self.real_chrome_var.get(),
+            scrape_visible=True,
+            use_real_chrome=True,  # always on — it's the only method that works
             should_stop=lambda: self.stop_flag,
         )
 
