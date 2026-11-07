@@ -121,7 +121,7 @@ class App:
         self.real_chrome_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             form,
-            text="Use my real Chrome to load the profile (close Chrome first)",
+            text="Use my real Chrome to load the profile (log in once when it opens)",
             variable=self.real_chrome_var,
         ).grid(row=5, column=1, columnspan=3, sticky="w", pady=4)
 

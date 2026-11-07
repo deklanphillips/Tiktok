@@ -15,6 +15,9 @@ downloads/
 *.webm
 *.part
 
+# Dedicated Chrome profile for the real-browser scrape (holds a login)
+chrome_profile/
+
 # Python
 __pycache__/
 *.pyc

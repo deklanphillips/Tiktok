@@ -367,14 +367,11 @@ def capture_tiktok_login(out_path, log=print, timeout_sec=300):
     return out_path
 
 
-def _real_chrome_user_data_dir():
-    """Best-guess path to the user's real Chrome profile folder, per OS."""
-    if sys.platform.startswith("win"):
-        base = os.environ.get("LOCALAPPDATA", "")
-        return os.path.join(base, "Google", "Chrome", "User Data")
-    if sys.platform == "darwin":
-        return os.path.expanduser("~/Library/Application Support/Google/Chrome")
-    return os.path.expanduser("~/.config/google-chrome")
+def _dedicated_chrome_profile_dir():
+    """A persistent Chrome profile we own, next to the script — separate from the
+    user's everyday Chrome so there's no profile-lock conflict, and it stays
+    logged into TikTok between runs."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "chrome_profile")
 
 
 def scrape_profile_videos(
@@ -397,23 +394,24 @@ def scrape_profile_videos(
     with sync_playwright() as p:
         browser = None
         if use_real_chrome:
-            user_data = _real_chrome_user_data_dir()
-            log(f"  Opening your real Chrome profile ({user_data}).")
+            prof = _dedicated_chrome_profile_dir()
+            os.makedirs(prof, exist_ok=True)
+            log(f"  Opening Chrome with its own profile ({prof}).")
+            log(
+                "  If the window is NOT already logged into TikTok, log in now —\n"
+                "  it's remembered for next time. Then it loads your profile and scrapes."
+            )
             try:
                 context = p.chromium.launch_persistent_context(
-                    user_data,
+                    prof,
                     channel="chrome",
                     headless=False,
                     no_viewport=True,
-                    args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--profile-directory=Default",
-                    ],
+                    args=["--disable-blink-features=AutomationControlled"],
                 )
             except Exception as e:
                 raise RuntimeError(
-                    "Couldn't open your real Chrome. Close EVERY Chrome window first "
-                    "(Chrome won't share its profile while it's open), then run again.\n"
+                    "Couldn't launch Google Chrome. Make sure Chrome is installed.\n"
                     f"Details: {e}"
                 )
             headful = True
@@ -439,13 +437,14 @@ def scrape_profile_videos(
         page.wait_for_timeout(3000)
 
         if headful:
+            wait_rounds = 120 if use_real_chrome else 30  # more time to log in first time
             log(
                 "  A browser window opened. If TikTok shows a captcha or a login\n"
                 "  prompt, solve it in that window — loading continues automatically.\n"
-                "  (You have about a minute.)"
+                f"  (You have about {wait_rounds * 2 // 60} minutes.)"
             )
-            # Give the user time to clear any human-check before we scrape.
-            for _ in range(30):
+            # Wait until the video grid appears (i.e. you're past any login/captcha).
+            for _ in range(wait_rounds):
                 if page.eval_on_selector_all(
                     'a[href*="/video/"]', "els => els.length"
                 ):
