@@ -367,7 +367,19 @@ def capture_tiktok_login(out_path, log=print, timeout_sec=300):
     return out_path
 
 
-def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -> list:
+def _real_chrome_user_data_dir():
+    """Best-guess path to the user's real Chrome profile folder, per OS."""
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA", "")
+        return os.path.join(base, "Google", "Chrome", "User Data")
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/Google/Chrome")
+    return os.path.expanduser("~/.config/google-chrome")
+
+
+def scrape_profile_videos(
+    url, cookies_browser=None, log=print, headful=False, use_real_chrome=False
+) -> list:
     """Load a TikTok profile in a real browser, scroll to the bottom so every
     video loads, and return all the video URLs.
 
@@ -375,27 +387,52 @@ def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -
     page: a real browser runs TikTok's own JavaScript, so the videos actually
     appear and can be scraped. With `headful=True` the window is visible, so if
     TikTok shows a captcha / "verify you're human" wall you can solve it by hand
-    and loading continues.
+    and loading continues. With `use_real_chrome=True` it drives your installed
+    Google Chrome with your own profile (you must close Chrome first), so TikTok
+    sees your real, logged-in browser instead of an automated one.
     """
     sync_playwright = _ensure_playwright(log)
 
     seen, links = set(), []
     with sync_playwright() as p:
-        browser = _launch_chromium(p, headful=headful)
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 900},
-        )
-        cb = str(cookies_browser or "")
-        if cb and os.path.isfile(os.path.expanduser(cb)):
+        browser = None
+        if use_real_chrome:
+            user_data = _real_chrome_user_data_dir()
+            log(f"  Opening your real Chrome profile ({user_data}).")
             try:
-                context.add_cookies(_load_netscape_cookies(os.path.expanduser(cb)))
-            except Exception:
-                pass  # cookies are optional for public profiles
+                context = p.chromium.launch_persistent_context(
+                    user_data,
+                    channel="chrome",
+                    headless=False,
+                    no_viewport=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--profile-directory=Default",
+                    ],
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    "Couldn't open your real Chrome. Close EVERY Chrome window first "
+                    "(Chrome won't share its profile while it's open), then run again.\n"
+                    f"Details: {e}"
+                )
+            headful = True
+        else:
+            browser = _launch_chromium(p, headful=headful)
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 900},
+            )
+            cb = str(cookies_browser or "")
+            if cb and os.path.isfile(os.path.expanduser(cb)):
+                try:
+                    context.add_cookies(_load_netscape_cookies(os.path.expanduser(cb)))
+                except Exception:
+                    pass  # cookies are optional for public profiles
 
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -457,7 +494,12 @@ def scrape_profile_videos(url, cookies_browser=None, log=print, headful=False) -
                 pass
             page.mouse.wheel(0, 24000)
             page.wait_for_timeout(2500)
-        browser.close()
+        try:
+            context.close()
+        except Exception:
+            pass
+        if browser is not None:
+            browser.close()
     return links
 
 
@@ -488,7 +530,9 @@ def _expand_profile_ytdlp(url: str, cookies_browser=None) -> list:
     return urls
 
 
-def expand_profile(url: str, cookies_browser=None, log=print, scrape_visible=False) -> list:
+def expand_profile(
+    url: str, cookies_browser=None, log=print, scrape_visible=False, use_real_chrome=False
+) -> list:
     """Return every video URL on a TikTok account.
 
     Tries yt-dlp's fast API listing first; if TikTok returns nothing (its
@@ -496,14 +540,16 @@ def expand_profile(url: str, cookies_browser=None, log=print, scrape_visible=Fal
     loading the profile in a real browser and scraping the links.
     """
     urls = []
-    try:
-        urls = _expand_profile_ytdlp(url, cookies_browser)
-    except Exception as e:
-        log(f"  Fast listing failed ({e}).")
+    if not use_real_chrome:
+        try:
+            urls = _expand_profile_ytdlp(url, cookies_browser)
+        except Exception as e:
+            log(f"  Fast listing failed ({e}).")
     if not urls:
         log("  Listing came back empty — loading the profile in a browser instead...")
         urls = scrape_profile_videos(
-            url, cookies_browser, log=log, headful=scrape_visible
+            url, cookies_browser, log=log, headful=scrape_visible,
+            use_real_chrome=use_real_chrome,
         )
     return urls
 
@@ -673,7 +719,7 @@ def collect_urls(raw_urls) -> list:
     return out
 
 
-def expand_urls(raw_urls, cookies_browser=None, scrape_visible=False) -> list:
+def expand_urls(raw_urls, cookies_browser=None, scrape_visible=False, use_real_chrome=False) -> list:
     """Expand any profile URLs in the list into their individual video URLs."""
     urls = []
     for url in collect_urls(raw_urls):
@@ -681,7 +727,8 @@ def expand_urls(raw_urls, cookies_browser=None, scrape_visible=False) -> list:
             print(f"Fetching all videos from profile: {url}")
             try:
                 found = expand_profile(
-                    url, cookies_browser, scrape_visible=scrape_visible
+                    url, cookies_browser, scrape_visible=scrape_visible,
+                    use_real_chrome=use_real_chrome,
                 )
             except Exception as e:
                 print(f"  Could not list this profile: {e}", file=sys.stderr)
@@ -713,6 +760,7 @@ def run_job(
     schedule_slots=None,
     schedule_days=None,
     scrape_visible=False,
+    use_real_chrome=False,
     should_stop=None,
 ):
     """Download and upload a batch of TikToks. Prints progress via print().
@@ -726,7 +774,10 @@ def run_job(
     user can solve a captcha. `should_stop` is an optional callable returning
     True to abort early (GUI Stop button).
     """
-    urls = expand_urls(raw_urls, cookies_browser, scrape_visible=scrape_visible)
+    urls = expand_urls(
+        raw_urls, cookies_browser, scrape_visible=scrape_visible,
+        use_real_chrome=use_real_chrome,
+    )
 
     uploaded = load_uploaded()
     if not force and uploaded:

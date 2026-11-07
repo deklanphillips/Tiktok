@@ -118,6 +118,13 @@ class App:
             variable=self.show_browser_var,
         ).grid(row=4, column=1, columnspan=3, sticky="w", pady=4)
 
+        self.real_chrome_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            form,
+            text="Use my real Chrome to load the profile (close Chrome first)",
+            variable=self.real_chrome_var,
+        ).grid(row=5, column=1, columnspan=3, sticky="w", pady=4)
+
         btns = ttk.Frame(tab)
         btns.pack(fill="x", padx=10)
         self.start_btn = ttk.Button(btns, text="Start upload", command=self.on_start)
@@ -524,6 +531,7 @@ class App:
             schedule_slots=slots,
             schedule_days=days,
             scrape_visible=self.show_browser_var.get(),
+            use_real_chrome=self.real_chrome_var.get(),
             should_stop=lambda: self.stop_flag,
         )
 
