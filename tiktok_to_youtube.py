@@ -746,21 +746,12 @@ def expand_urls(raw_urls, cookies_browser=None, scrape_visible=False, use_real_c
 
 
 def _fetch_video_bytes(context, play_url):
-    """Download the video bytes inside the real Chrome session (Chrome's own
-    network stack + cookies + Referer), falling back to Playwright's request."""
-    try:
-        pg = context.new_page()
-        try:
-            r = pg.goto(play_url, timeout=90000)
-            if r and r.ok:
-                body = r.body()
-                if body:
-                    return body
-        finally:
-            pg.close()
-    except Exception:
-        pass
-    resp = context.request.get(play_url, headers={"referer": "https://www.tiktok.com/"})
+    """Download the video bytes via the browser context's request (shares the
+    real Chrome session's cookies). We do NOT navigate a page to the mp4 — that
+    makes Chrome open a video player and never finish."""
+    resp = context.request.get(
+        play_url, headers={"referer": "https://www.tiktok.com/"}, timeout=120000
+    )
     if resp.ok:
         return resp.body()
     raise RuntimeError(f"download failed (HTTP {resp.status})")
