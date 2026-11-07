@@ -825,6 +825,100 @@ def run_job(
     print("\nDone.")
 
 
+VIDEO_EXTS = (".mp4", ".mov", ".webm", ".mkv", ".m4v")
+
+
+def gather_local_videos(paths) -> list:
+    """Expand files/folders into a sorted list of local video file paths."""
+    out = []
+    for p in paths if not isinstance(paths, str) else [paths]:
+        p = os.path.expanduser(str(p).strip())
+        if os.path.isdir(p):
+            for name in sorted(os.listdir(p)):
+                if name.lower().endswith(VIDEO_EXTS):
+                    out.append(os.path.join(p, name))
+        elif os.path.isfile(p) and p.lower().endswith(VIDEO_EXTS):
+            out.append(p)
+    return out
+
+
+def run_local_upload(
+    paths,
+    *,
+    privacy="private",
+    as_short=True,
+    hashtags=None,
+    limit=None,
+    skip=0,
+    force=False,
+    schedule_slots=None,
+    schedule_days=None,
+    should_stop=None,
+):
+    """Upload local video files (that you downloaded yourself) to YouTube —
+    no TikTok involved. Same hashtags/Shorts/scheduling/dedupe as a normal run."""
+
+    def key_for(fp):
+        return "local:" + os.path.splitext(os.path.basename(fp))[0]
+
+    files = gather_local_videos(paths)
+    if not files:
+        print("No video files found there (looked for .mp4/.mov/.webm/.mkv/.m4v).")
+        return
+
+    uploaded = load_uploaded()
+    if not force and uploaded:
+        before = len(files)
+        files = [f for f in files if key_for(f) not in uploaded]
+        already = before - len(files)
+        if already:
+            print(f"Skipping {already} file(s) already uploaded previously.")
+
+    if skip:
+        files = files[skip:]
+    if limit is not None:
+        files = files[:limit]
+    if not files:
+        print("Nothing new to upload.")
+        return
+
+    print(f"\nUploading {len(files)} file(s) to YouTube.")
+    youtube = get_youtube_service()
+    schedule_state = load_schedule() if schedule_slots else None
+
+    for i, fp in enumerate(files, 1):
+        if should_stop and should_stop():
+            print("\nStopped by user.")
+            return
+        name = os.path.splitext(os.path.basename(fp))[0]
+        print(f"\n[{i}/{len(files)}] {os.path.basename(fp)}")
+        try:
+            video = {"id": key_for(fp), "filepath": fp, "title": name, "description": name}
+            publish_at = None
+            if schedule_slots:
+                local_dt, publish_at = next_publish_time(
+                    schedule_slots, schedule_state, schedule_days
+                )
+            vid = upload_to_youtube(
+                youtube, video, as_short=as_short, privacy=privacy,
+                hashtags=hashtags, publish_at=publish_at,
+            )
+            if publish_at:
+                save_schedule(schedule_state)
+                print(
+                    f"    uploaded: https://youtube.com/watch?v={vid} — "
+                    f"goes live {local_dt:%a %b %d %I:%M %p}"
+                )
+            else:
+                print(f"    uploaded: https://youtube.com/watch?v={vid} ({privacy})")
+            uploaded[key_for(fp)] = vid
+            save_uploaded(uploaded)
+        except Exception as e:
+            print(f"    ERROR: {e}", file=sys.stderr)
+
+    print("\nDone.")
+
+
 def run_daily():
     """Unattended run used by the scheduled task. Reads settings.json, uploads
     the configured daily count, and appends output to daily_log.txt."""

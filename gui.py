@@ -124,6 +124,9 @@ class App:
         self.start_btn.pack(side="left")
         self.stop_btn = ttk.Button(btns, text="Stop", command=self.on_stop, state="disabled")
         self.stop_btn.pack(side="left", padx=6)
+        ttk.Button(
+            btns, text="Upload video files…", command=self.on_upload_files
+        ).pack(side="left", padx=6)
 
         ttk.Label(tab, text="Progress:").pack(anchor="w", padx=10, pady=(8, 0))
         self.log = scrolledtext.ScrolledText(tab, height=16, state="disabled", wrap="word")
@@ -545,6 +548,47 @@ class App:
     def _run_done(self):
         self.start_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
+
+    def on_upload_files(self):
+        """Upload a folder of video files you downloaded yourself (no TikTok)."""
+        if self.worker and self.worker.is_alive():
+            return
+        folder = filedialog.askdirectory(title="Pick the folder with your video files")
+        if not folder:
+            return
+        limit_raw = self.limit_var.get().strip()
+        limit = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else None
+        scheduling = self.settings.get("schedule_publish")
+        params = dict(
+            paths=[folder],
+            privacy=self.settings.get("privacy", "private"),
+            as_short=self.settings.get("as_short", True),
+            hashtags=(self.settings.get("hashtags") or "").strip() or None,
+            limit=limit,
+            skip=0,
+            force=self.force_var.get(),
+            schedule_slots=self.settings.get("schedule_slots") if scheduling else None,
+            schedule_days=self.settings.get("schedule_days") if scheduling else None,
+            should_stop=lambda: self.stop_flag,
+        )
+        self.stop_flag = False
+        self.start_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+        self._append(self.log, "=" * 50 + f"\nUploading video files from:\n{folder}\n")
+
+        def job():
+            old = sys.stdout, sys.stderr
+            sys.stdout = sys.stderr = _QueueWriter(self.log_queue)
+            try:
+                engine.run_local_upload(**params)
+            except Exception as e:
+                print(f"\nERROR: {e}")
+            finally:
+                sys.stdout, sys.stderr = old
+                self.root.after(0, self._run_done)
+
+        self.worker = threading.Thread(target=job, daemon=True)
+        self.worker.start()
 
     # ------------------------------------------------ Windows scheduled task
     def _schtasks(self, args):
