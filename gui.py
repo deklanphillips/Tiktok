@@ -301,6 +301,17 @@ class App:
             anchor="w", padx=12, pady=6
         )
 
+        ytrow = ttk.Frame(tab)
+        ytrow.pack(anchor="w", padx=12, pady=(10, 2))
+        ttk.Label(ytrow, text="yt-dlp version:").pack(side="left")
+        self.ytdlp_version = tk.StringVar(value="")
+        ttk.Entry(ytrow, textvariable=self.ytdlp_version, width=16).pack(side="left", padx=6)
+        ttk.Button(ytrow, text="Install", command=self.install_ytdlp).pack(side="left")
+        ttk.Label(
+            tab,
+            text="Blank = newest (usually best for TikTok). Type e.g. 2025.9.26 to downgrade.",
+        ).pack(anchor="w", padx=12)
+
     # --------------------------------------------------------------- settings
     def _collect_settings(self):
         def _int(s, d):
@@ -334,6 +345,47 @@ class App:
         )
         if path:
             self.set_cookies.set(path)
+
+    def install_ytdlp(self):
+        """Reinstall yt-dlp at a chosen version (blank = newest), then relaunch."""
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("Busy", "Finish the current run first.")
+            return
+        ver = self.ytdlp_version.get().strip()
+        spec = f"yt-dlp=={ver}" if ver else "yt-dlp"
+        args = [sys.executable, "-m", "pip", "install", "--upgrade", spec]
+        self._append(self.log, f"\nInstalling {spec} ...\n")
+
+        def job():
+            old = sys.stdout, sys.stderr
+            sys.stdout = sys.stderr = _QueueWriter(self.log_queue)
+            ok = False
+            try:
+                out = subprocess.run(args, capture_output=True, text=True)
+                print((out.stdout + out.stderr).strip()[-2000:])
+                ok = out.returncode == 0
+            except Exception as e:
+                print(f"ERROR: {e}")
+            finally:
+                sys.stdout, sys.stderr = old
+            self.root.after(0, lambda: self._ytdlp_done(ok, spec))
+
+        self.worker = threading.Thread(target=job, daemon=True)
+        self.worker.start()
+
+    def _ytdlp_done(self, ok, spec):
+        if ok:
+            if messagebox.askyesno(
+                "yt-dlp installed",
+                f"Installed {spec}.\n\nRestart the app now so it takes effect?",
+            ):
+                self.root.destroy()
+                os.execl(sys.executable, sys.executable, GUI_FILE)
+        else:
+            messagebox.showerror(
+                "Install failed",
+                "Couldn't install that version — check the version number in the log.",
+            )
 
     def login_tiktok(self):
         """Open a browser, let the user log into TikTok, save the cookies, and
